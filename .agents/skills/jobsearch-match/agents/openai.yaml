@@ -1,0 +1,4 @@
+interface:
+  display_name: "JobSearch: відповідність вакансії"
+  short_description: "Відбір вакансій на основі досвіду"
+  default_prompt: "Використай $jobsearch-match для оцінки вакансій за моїм профілем."

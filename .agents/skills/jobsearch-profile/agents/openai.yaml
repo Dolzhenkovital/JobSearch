@@ -1,0 +1,4 @@
+interface:
+  display_name: "JobSearch: профіль кандидатки"
+  short_description: "Факти з CV та побажання до роботи"
+  default_prompt: "Використай $jobsearch-profile для створення приватного профілю з наданого CV."

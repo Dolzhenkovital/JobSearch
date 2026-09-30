@@ -1,0 +1,4 @@
+interface:
+  display_name: "JobSearch: джерела вакансій"
+  short_description: "Збір вакансій, повні описи й актуальність"
+  default_prompt: "Використай $jobsearch-sources для перевірки та підключення потрібного джерела вакансій."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "JobSearch: CV та lettre"
+  short_description: "Адаптація документів і перевірка верстки"
+  default_prompt: "Використай $jobsearch-documents для підготовки CV та lettre de motivation під обрану вакансію."

@@ -1,0 +1,29 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Candidate data, mail, source caches, and generated application packets
+/private/
+/data/
+/outputs/
+/work/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# Runtime and editor artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+.next/
+dist/
+Thumbs.db
+.DS_Store
+~$*

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "candidate_id": null,
+  "profile_version": null,
+  "updated_at": null,
+  "contact": {
+    "name": null,
+    "email": null,
+    "phone": null,
+    "location_display": null
+  },
+  "sources": [],
+  "facts": [],
+  "role_families": [],
+  "preferences": {
+    "target_roles": [],
+    "locations": [],
+    "max_commute_minutes": null,
+    "work_arrangements": [],
+    "schedule": null,
+    "compensation": {
+      "minimum": null,
+      "currency": null,
+      "period": null
+    },
+    "non_negotiables": [],
+    "language_filter_enabled": false
+  },
+  "document_preferences": {
+    "output_language": null,
+    "template_ref": null,
+    "preferred_cv_pages": null
+  },
+  "open_questions": []
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "JobSearch: розробка сервісу"
+  short_description: "Реалізація сервісу та облік заявок"
+  default_prompt: "Використай $jobsearch-build для наступного наскрізного сценарію JobSearch."

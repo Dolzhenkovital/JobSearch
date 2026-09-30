@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packet_id": null,
+  "created_at": null,
+  "job_id": null,
+  "job_source_url": null,
+  "description_version": null,
+  "description_completeness": null,
+  "profile_version": null,
+  "output_language": null,
+  "files": [],
+  "evidence_map_ref": null,
+  "change_summary": [],
+  "open_questions": [],
+  "checks": {
+    "factual_consistency": "not_checked",
+    "target_employer_and_role": "not_checked",
+    "text_extraction": "not_checked",
+    "visual_layout": "not_checked"
+  },
+  "review_status": "draft",
+  "user_approved_at": null,
+  "user_approval_ref": null
+}
