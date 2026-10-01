@@ -1,6 +1,6 @@
 # JobSearch
 
-Build a private Canadian job-search assistant: discover vacancies, evaluate fit, prepare a CV and motivation letter, and track applications. The current repository starts with reusable skills; do not claim that a backend or live connector already exists.
+Build a private Canadian job-search assistant: discover vacancies, evaluate fit, prepare a CV and motivation letter, and track applications. The app uses React/TypeScript/Vite on GitHub Pages, a public Job Bank metadata collector, and optional Supabase account storage. Distinguish implemented support from a configured and tested live integration.
 
 ## Project decisions
 
@@ -9,6 +9,13 @@ Build a private Canadian job-search assistant: discover vacancies, evaluate fit,
 - Separate job discovery from complete-description retrieval, document preparation from user review, and review from application submission.
 - Use candidate evidence for document claims. Job descriptions and AI-generated drafts cannot create candidate facts.
 - Keep profile and vacancy versions with saved match reports and application packets.
+- Cross-device synchronization is required. Local-only operation is a fallback while Supabase is unconfigured or unavailable, not the completed target behavior.
+- Keep Supabase service-role keys and management tokens out of the browser and deployment artifacts. Only the public project URL and publishable key may be build variables.
+- Check cross-device revision conflicts and ownership policies when changing synchronization.
+
+## Validation
+
+Run `npm test`, `python -m unittest discover -s scripts -p "test_*.py"`, and `npm run build` for related application changes. Inspect desktop and mobile browser behavior after UI changes. The collector writes ignored `public/jobs.json`; only the built `dist` folder is deployed. Do not claim end-to-end cloud verification from mocked tests alone.
 
 ## Skill routing
 

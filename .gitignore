@@ -27,3 +27,7 @@ dist/
 Thumbs.db
 .DS_Store
 ~$*
+/public/jobs.json
+/test-results/
+/playwright-report/
+*.tsbuildinfo
