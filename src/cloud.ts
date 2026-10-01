@@ -1,19 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { parseBackup } from "./domain";
 import type { Store } from "./types";
+import { publicCloudConfig } from "./publicCloudConfig";
 
 const url = import.meta.env.VITE_SUPABASE_URL || "";
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
-export const cloud =
-  /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(url) && key
-    ? createClient(url, key, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true,
-        },
-      })
-    : null;
+const config = publicCloudConfig(url, key);
+export const cloud = url && key && config
+  ? createClient(config.url, config.key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
+  : null;
 
 export type Remote = { store: Store; revision: number };
 export type SyncDecision = "pull" | "push" | "conflict";
