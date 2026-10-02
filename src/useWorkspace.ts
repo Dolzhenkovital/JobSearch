@@ -8,6 +8,7 @@ import {
   type Remote,
 } from "./cloud";
 import { initialStore, parseBackup, STORAGE_KEY } from "./domain";
+import { t } from "./i18n";
 import type { Store } from "./types";
 
 type Cache = { store: Store; revision: number; dirty: boolean };
@@ -22,7 +23,7 @@ function read(id: string | null): Cache {
       value.revision < 0 ||
       typeof value.dirty !== "boolean"
     )
-      throw new Error("Некоректна версія простору.");
+      throw new Error(t("error.workspaceVersion"));
     return {
       store: parseBackup(JSON.stringify(value.store)),
       revision: value.revision,
@@ -31,7 +32,7 @@ function read(id: string | null): Cache {
   } catch {
     // Preserve the exact original before a later edit can replace a damaged cache.
     localStorage.setItem(`${cacheKey(id)}:recovery:${Date.now()}`, raw);
-    throw new Error("Не вдалося прочитати збережений простір.");
+    throw new Error(t("error.workspaceRead"));
   }
 }
 export function useWorkspace() {
@@ -60,9 +61,7 @@ export function useWorkspace() {
     try {
       localStorage.setItem(cacheKey(owner.current), JSON.stringify(value));
     } catch {
-      setError(
-        "Браузер не зміг зберегти зміни. Зробіть резервну копію у налаштуваннях.",
-      );
+      setError(t("workspace.saveFailed"));
     }
   }, []);
   const update = useCallback(
@@ -94,9 +93,7 @@ export function useWorkspace() {
           setConflict(remote);
           setStatus("conflict");
         } else
-          throw new Error(
-            "Хмарну копію змінено. Збережіть резервну копію перед повторним входом.",
-          );
+          throw new Error(t("error.cloudChanged"));
       } else if (decision === "pull") {
         if (remote)
           persist({
@@ -137,9 +134,7 @@ export function useWorkspace() {
         }
       } else {
         setStatus("offline");
-        setError(
-          "Синхронізація недоступна. Локальні зміни збережені; спробуємо знову.",
-        );
+        setError(t("workspace.syncUnavailable"));
       }
     } finally {
       if (generation === epoch.current) busy.current = false;
@@ -150,9 +145,7 @@ export function useWorkspace() {
     try {
       read(null);
     } catch {
-      setError(
-        "Локальна копія пошкоджена. Її не перезаписано. Відновіть резервну копію через налаштування.",
-      );
+      setError(t("workspace.localCorrupted"));
     }
     if (!cloud) return;
     let disposed = false;
@@ -192,9 +185,7 @@ export function useWorkspace() {
           .catch(() => {
             if (generation === epoch.current) {
               setStatus("offline");
-              setError(
-                "Не вдалося відкрити хмарну копію. Зміни залишаються на пристрої.",
-              );
+              setError(t("workspace.cloudOpenFailed"));
             }
           });
       } catch {
@@ -203,9 +194,7 @@ export function useWorkspace() {
         live.current = empty;
         setCache(empty);
         paused.current = true;
-        setError(
-          "Збережений простір не вдалося прочитати. Початкову копію збережено для відновлення; синхронізацію призупинено.",
-        );
+        setError(t("workspace.readFailed"));
         setStatus("offline");
       }
     };
@@ -250,7 +239,7 @@ export function useWorkspace() {
         JSON.stringify(live.current),
       );
     } catch {
-      setError("Не вдалося створити копію. Спочатку експортуйте дані.");
+      setError(t("workspace.backupFailed"));
       return;
     }
     persist(

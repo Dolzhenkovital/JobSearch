@@ -2539,3 +2539,19 @@ select {
   .ai-panel .button-row > .button { width: 100%; justify-content: center; }
   .requirements .tag { display: table; margin: 7px 0 0; }
 }
+.pipeline-summary strong { margin: 0 0 0 5px; }
+.language-select { display: flex; align-items: center; gap: 6px; color: #6e7f71; font-size: 11px; }
+.language-select select { border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #4b6154; font-size: 11px; padding: 6px 8px; max-width: 132px; }
+.env-badge { margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: #f4d98b; color: #5a4300; font-size: 9px; font-weight: 750; letter-spacing: 0.08em; }
+@media (max-width: 580px) {
+  .breadcrumb-root { display: none; }
+  .topbar { gap: 8px; }
+  .breadcrumb { min-width: 0; }
+  .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .language-select svg { display: none; }
+  .language-select select { font-size: 10px; padding: 5px 4px; max-width: 96px; }
+  .sync-button { max-width: 118px; }
+}
+@media print {
+  .language-select, .env-badge { display: none; }
+}

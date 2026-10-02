@@ -56,9 +56,25 @@ describe("candidate evidence and job handling", () => {
       ),
     ).toEqual([]);
   });
+  it("excludes language names written in Ukrainian or German as well", () => {
+    const profile = {
+      ...initialStore().profile,
+      skills: "Excel, Англійська, Німецька, Deutsch, Französisch",
+    };
+    expect(
+      matchingTerms(
+        {
+          ...job,
+          description:
+            "Excel. Англійська та німецька мови. Deutsch und Französisch erforderlich.",
+        },
+        profile,
+      ),
+    ).toEqual(["Excel"]);
+  });
   it("keeps missing pay unknown and only compares stated hourly pay", () => {
     const settings = { ...initialStore().settings, minHourly: "30" };
-    expect(preferenceReasons(job, settings)).toEqual(["Нижча оплата"]);
+    expect(preferenceReasons(job, settings)).toEqual(["salary"]);
     expect(preferenceReasons({ ...job, salary: "" }, settings)).toEqual([]);
     expect(
       preferenceReasons({ ...job, salary: "$60,000 annually" }, settings),
