@@ -41,7 +41,7 @@ Workflow зроблено за зразком `codex-code-review.yml`: Codex CLI
 | --- | --- | --- | --- |
 | `CODEX_TOKEN` | secret | так | API-ключ провайдера. |
 | `CODEX_BASE_URL` | secret (або variable) | так | Базова адреса OpenAI-сумісного API, наприклад `https://api.openai.com/v1`. Репозиторій публічний, тому адресу приватного проксі зберігайте як secret. |
-| `CODEX_MODEL` | variable | так | Ідентифікатор моделі. |
+| `CODEX_MODEL` | variable (або secret) | так | Ідентифікатор моделі. Як secret він маскується в публічних логах Actions. |
 | `CODEX_WIRE_API` | variable | ні | `responses` (типово) або `chat`. |
 | `CODE_REVIEW_LANGUAGE` | variable | ні | Мова рев'ю; типово Ukrainian. |
 
