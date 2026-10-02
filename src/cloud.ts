@@ -6,6 +6,9 @@ import { publicCloudConfig } from "./publicCloudConfig";
 const url = import.meta.env.VITE_SUPABASE_URL || "";
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 const config = publicCloudConfig(url, key);
+// Auth may consume the recovery hash before React mounts and subscribes to its events.
+export const recoveryRedirect = typeof location !== 'undefined' &&
+  new URLSearchParams(location.hash.slice(1)).get('type') === 'recovery';
 export const cloud = url && key && config
   ? createClient(config.url, config.key, {
       auth: {

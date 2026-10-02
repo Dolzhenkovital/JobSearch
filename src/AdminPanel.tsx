@@ -1,10 +1,11 @@
 import { useEffect,useRef,useState } from 'react';
-import { KeyRound,LoaderCircle,RefreshCw,Save,Trash2,Users,Sparkles } from 'lucide-react';
+import { KeyRound,LoaderCircle,RefreshCw,Save,Trash2,Users,Sparkles,Mail } from 'lucide-react';
+import {SmtpPanel} from './SmtpPanel';
 import { Field,Modal,formatDate } from './ui';
 import { serviceCall,EFFORTS,type Account,type PublicLlmConfig } from './service';
 
 export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{onClose:()=>void;notify:(s:string)=>void;onConfigChange:()=>void;request?:typeof serviceCall}){
-  const [tab,setTab]=useState<'users'|'llm'>('users');
+  const [tab,setTab]=useState<'users'|'llm'|'smtp'>('users');
   const [users,setUsers]=useState<Account[]>([]),[page,setPage]=useState(1),[hasMore,setHasMore]=useState(false);
   const [config,setConfig]=useState<PublicLlmConfig|null>(null),[apiKey,setApiKey]=useState('');
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -17,7 +18,7 @@ export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{
       if(tab==='users'){
         const result=await request<{users:Account[];hasMore:boolean}>('list_users',{page:nextPage});
         if(active.current){setUsers(result.users);setPage(nextPage);setHasMore(result.hasMore);}
-      }else{
+      }else if(tab==='llm'){
         const result=await request<PublicLlmConfig>('get_config');
         if(active.current){setConfig(result);setApiKey('');}
       }
@@ -34,14 +35,16 @@ export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{
       await load();
     }catch(e){if(active.current)setError((e as Error).message);}finally{if(active.current)setBusy(false);}
   }
-  return <Modal title="Адміністрування" subtitle="Користувачі та зовнішній LLM" onClose={onClose} wide>
+  return <Modal title="Адміністрування" subtitle="Користувачі, зовнішній LLM та пошта" onClose={onClose} wide>
     <div className="modal-tabs" role="tablist" aria-label="Адміністрування">
       <button role="tab" aria-selected={tab==='users'} className={tab==='users'?'active':''} disabled={busy} onClick={()=>setTab('users')}><Users size={17}/>Користувачі</button>
       <button role="tab" aria-selected={tab==='llm'} className={tab==='llm'?'active':''} disabled={busy} onClick={()=>setTab('llm')}><Sparkles size={17}/>Зовнішній LLM</button>
+      <button role="tab" aria-selected={tab==='smtp'} className={tab==='smtp'?'active':''} disabled={busy} onClick={()=>setTab('smtp')}><Mail size={17}/>Пошта</button>
     </div>
     <div className="modal-body">
       {error&&<div className="notice error" role="alert">{error}</div>}
       {busy&&<p role="status"><LoaderCircle size={17} className="spin"/> Обробляємо…</p>}
+      {tab==='smtp'&&<SmtpPanel request={request} notify={notify}/>}
       {tab==='users'&&<>
         <div className="section-title-row"><h3>Зареєстровані акаунти</h3><button className="button secondary small" disabled={busy} onClick={()=>void load()}><RefreshCw size={15}/>Оновити</button></div>
         <div className="admin-users">{users.map(account=><article className="admin-user" key={account.id}>

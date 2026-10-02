@@ -12,7 +12,7 @@ const query=(table:string)=>{
 const admin={auth:{getUser,resetPasswordForEmail:recovery,admin:{listUsers,deleteUser,getUserById:vi.fn()}},from:query,rpc} as unknown as SupabaseClient;
 const config={baseUrl:'https://api.example.com/v1',model:'synthetic',apiFormat:'responses',reasoningEffort:'default',monthlyTokenBudget:0};
 const input={profileVersion:1,evidence:[{id:'cv:1',text:'Prepared Excel reports.'}],job:{id:'synthetic:1',title:'Assistant',employer:'Example',description:'Excel required.',completeness:'full',availability:'unknown',location:'',salary:''},preferences:{city:'',roles:'',minHourly:'',applyPreferences:false},documentLanguage:'en'};
-const make=(resolveAddresses=async()=>['8.8.8.8'])=>createHandler({admin,siteUrl:'https://example.com/app/',allowedOrigins:['https://example.com'],fetch:provider,resolveAddresses});
+const make=(resolveAddresses=async()=>['8.8.8.8'])=>createHandler({admin,siteUrl:'https://example.com/app/',allowedOrigins:['https://example.com'],fetch:provider,resolveAddresses,projectRef:'abcdefghijklmnopqrst'});
 const request=(action:string,extra:Record<string,unknown>={},authenticated=true)=>new Request('https://example.com/functions/v1/jobsearch-api',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://example.com',...(authenticated?{Authorization:'Bearer synthetic-user-token'}:{})},body:JSON.stringify({action,...extra})});
 beforeEach(()=>{
   vi.resetAllMocks();allowed=false;existing=null;
@@ -27,7 +27,7 @@ beforeEach(()=>{
 describe('server authentication and provider boundary',()=>{
   it('rejects unauthenticated and non-admin access before privileged actions',async()=>{
     expect((await make()(request('list_users',{},false))).status).toBe(401);
-    for(const action of ['list_users','get_config','save_config','delete_user','reset_password'])
+    for(const action of ['list_users','get_config','save_config','delete_user','reset_password','get_smtp','save_smtp'])
       expect((await make()(request(action))).status).toBe(403);
     expect(listUsers).not.toHaveBeenCalled();expect(deleteUser).not.toHaveBeenCalled();expect(rpc).not.toHaveBeenCalled();
   });
@@ -36,6 +36,39 @@ describe('server authentication and provider boundary',()=>{
     const response=await make()(request('get_config'));const result=await response.json();
     expect(result.keyConfigured).toBe(true);expect(JSON.stringify(result)).not.toContain('synthetic-private-key');
     expect(result).not.toHaveProperty('apiKey');
+  });
+  it('does not call Management API until an administrator provides access',async()=>{
+    allowed=true;
+    expect(await (await make()(request('get_smtp'))).json()).toEqual({managementConfigured:false,config:null,passwordConfigured:false});
+    expect((await make()(request('save_smtp'))).status).toBe(400);
+    expect(provider).not.toHaveBeenCalled();
+  });
+  it('returns only SMTP fields and never echoes Management API secrets',async()=>{
+    allowed=true;
+    provider.mockResolvedValue(Response.json({smtp_host:'smtp.example.com',smtp_port:'587',smtp_user:'synthetic-user',smtp_pass:'private-smtp-secret',smtp_admin_email:'sender@example.com',smtp_sender_name:'JobSearch',jwt_secret:'unrelated-private-secret'}));
+    const response=await (await make()(request('get_smtp',{managementToken:'synthetic-management-token'}))).json();
+    expect(response.passwordConfigured).toBe(true);
+    expect(JSON.stringify(response)).not.toMatch(/private-smtp-secret|unrelated-private-secret|synthetic-management-token/);
+    expect(provider.mock.calls[0][0]).toBe('https://api.supabase.com/v1/projects/abcdefghijklmnopqrst/config/auth');
+  });
+  it('updates only SMTP settings, retains a blank password, and requires replacement for another host',async()=>{
+    allowed=true;
+    const old={smtp_host:'smtp.example.com',smtp_user:'synthetic-user',smtp_pass:'private-smtp-secret'};
+    const smtp={host:'smtp.example.com',port:587,username:'synthetic-user',senderEmail:'sender@example.com',senderName:'JobSearch',mailer_autoconfirm:true};
+    provider.mockResolvedValueOnce(Response.json(old)).mockResolvedValueOnce(Response.json({smtp_pass:'private-smtp-secret',jwt_secret:'other-secret'}));
+    const response=await make()(request('save_smtp',{managementToken:'synthetic-token',config:smtp,password:'',projectRef:'client-must-not-select-project'}));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(provider.mock.calls[1][1].body)).toEqual({smtp_host:'smtp.example.com',smtp_port:'587',smtp_user:'synthetic-user',smtp_admin_email:'sender@example.com',smtp_sender_name:'JobSearch'});
+    expect(await response.text()).not.toContain('secret');
+    provider.mockResolvedValueOnce(Response.json(old));
+    expect((await make()(request('save_smtp',{managementToken:'synthetic-token',config:{...smtp,host:'another.example.com'},password:''}))).status).toBe(400);
+    expect(provider).toHaveBeenCalledTimes(3);
+  });
+  it('reports an ambiguous SMTP update without retrying it',async()=>{
+    allowed=true;
+    provider.mockResolvedValueOnce(Response.json({})).mockRejectedValueOnce(new Error('network failure'));
+    const response=await make()(request('save_smtp',{managementToken:'synthetic-token',config:{host:'smtp.example.com',port:465,username:'synthetic',senderEmail:'sender@example.com',senderName:'JobSearch'},password:'synthetic-pass'}));
+    expect(await response.json()).toEqual({error:'smtp_update_uncertain'});expect(provider).toHaveBeenCalledTimes(2);
   });
   it('blocks a private resolved host before reserving tokens or transmitting a key',async()=>{
     const response=await make(async()=>['127.0.0.1'])(request('match',{requestId:rid,input}));

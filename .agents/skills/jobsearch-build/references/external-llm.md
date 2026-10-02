@@ -57,6 +57,8 @@ Reservation is atomic per user; one pending run is allowed. A request ID replays
 
 Admin account listing excludes workspace content. Password reset sends a recovery link; it never creates or exposes a password. Deletion requires an exact email confirmation and protects all administrators. Admin actions are recorded with actor/target/action metadata and rate limited per target/action.
 
+The admin mail tab applies SMTP settings to Supabase Auth via the Management API. It accepts a transient Management Token (or the server's optional `JOBSEARCH_MANAGEMENT_TOKEN`); never persist a browser-supplied token. `_shared/smtp.ts` whitelists SMTP fields and redacts passwords and unrelated Auth secrets. The server fixes the target project. SMTP configuration and actual email delivery require separate verification; a save does not send a test email.
+
 Measure latency, token usage and actual cost when available, plus useful assessments and time to an approved packet. Keep provider pricing dated and verified after provider/model selection; do not prescribe a paid tier or claim a cost figure before that decision.
 
 ## Acceptance for this stage

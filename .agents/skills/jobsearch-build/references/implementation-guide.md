@@ -13,6 +13,7 @@ Use this guide for engineering work; inspect the current source before relying o
 | Public build configuration | `src/publicCloudConfig.ts`, `vite.config.ts`, `.env.example` | Only public project URL and publishable/legacy anon key; reject privileged credentials before bundling. |
 | Database ownership | `supabase/migrations/202610010001_workspace.sql`, `supabase/verify_workspace.sql` | Row-level security, authenticated owner identity, revision-checked `save_workspace` RPC. |
 | Admin and recovery | `src/AdminPanel.tsx`, `src/PasswordRecovery.tsx`, `supabase/functions/_shared/handler.ts` | Server role checks, write-only provider key, recovery email, typed deletion confirmation, protected admin accounts. |
+| SMTP configuration | `src/SmtpPanel.tsx`, `supabase/functions/_shared/smtp.ts` | Management API for the server-selected project, transient admin token, SMTP-only field whitelist, no automatic email dispatch. |
 | External inference | `src/AiPanel.tsx`, `src/service.ts`, `supabase/functions/_shared/llm.ts` | Two explicit actions, versioned source snapshots, validated draft outputs, no automatic retries or employer submission. |
 | Usage and inference history | `supabase/migrations/202610020001_admin_llm.sql` | Owner-only read access, service-only writes, atomic per-user UTC-month reservations, idempotent request IDs. |
 | Public source collector | `scripts/collect_jobbank.py`, `scripts/test_collect_jobbank.py` | Public discovery metadata only; preserve last good feed on failure. |

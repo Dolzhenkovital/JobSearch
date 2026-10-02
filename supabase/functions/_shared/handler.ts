@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {parseSmtp,smtpView,smtpPatch} from './smtp.ts';
 import {
   AppError, object, text, parseConfig, parseInput, providerRequest, providerOutput,
   validateMatch, validateTailor, RULES_VERSION, type Operation,
@@ -7,6 +8,7 @@ import {
 type Dependencies = {
   admin: SupabaseClient; siteUrl: string; allowedOrigins: string[];
   fetch: typeof fetch; resolveAddresses: (host: string) => Promise<string[]>;
+  projectRef?:string; managementToken?:string;
 };
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ERROR_CODES=['admin_required','config_conflict','request_conflict','llm_unconfigured','budget_exceeded',
@@ -70,8 +72,30 @@ export function createHandler(deps:Dependencies) {
       const user=auth.user;
       const body=object(await boundedJson(new Response(request.body),180000));
       const action=text(body.action,60);
-      if(['list_users','reset_password','delete_user','get_config','save_config'].includes(action)&&!await isAdmin(user.id))
+      if(['list_users','reset_password','delete_user','get_config','save_config','get_smtp','save_smtp'].includes(action)&&!await isAdmin(user.id))
         throw new AppError('admin_required',403);
+      if(action==='get_smtp'||action==='save_smtp') {
+        const supplied=body.managementToken===undefined?'':text(body.managementToken,8000,true).trim();
+        const token=supplied||deps.managementToken||'';
+        if(!token&&action==='get_smtp')return reply({managementConfigured:false,config:null,passwordConfigured:false});
+        if(!token)throw new AppError('smtp_management_required');
+        if(/[\r\n]/.test(token)||!deps.projectRef||! /^[a-z0-9]{20}$/.test(deps.projectRef))throw new AppError('invalid_input');
+        const endpoint=`https://api.supabase.com/v1/projects/${deps.projectRef}/config/auth`;
+        const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+        const current=await deps.fetch(endpoint,{headers,redirect:'error',signal:AbortSignal.timeout(20000)});
+        if(!current.ok){await current.body?.cancel();throw new AppError('smtp_management_failed',502);}
+        const previous=smtpView(await boundedJson(current),!!deps.managementToken);
+        if(action==='get_smtp')return reply(previous);
+        const config=parseSmtp(body.config),password=body.password===undefined?'':text(body.password,16000,true);
+        const patch=smtpPatch(config,password,previous);
+        let changed:Response;
+        try {changed=await deps.fetch(endpoint,{method:'PATCH',headers,body:JSON.stringify(patch),redirect:'error',signal:AbortSignal.timeout(20000)});}
+        catch {throw new AppError('smtp_update_uncertain',502);}
+        if(!changed.ok){await changed.body?.cancel();throw new AppError(changed.status>=500?'smtp_update_uncertain':'smtp_update_failed',502);}
+        // The response can contain unrelated auth secrets. Never return it.
+        await changed.body?.cancel();
+        return reply({managementConfigured:!!deps.managementToken,config,passwordConfigured:true});
+      }
       if(action==='status') {
         await rpc('llm_reconcile_expired',{p_user:user.id});
         const settings=await rpc('llm_server_config');

@@ -1,8 +1,8 @@
 import {useEffect,useState} from 'react';
-import {cloud} from './cloud';
+import {cloud,recoveryRedirect} from './cloud';
 import {Field,Modal} from './ui';
 export function PasswordRecovery(){
-  const [open,setOpen]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('type')==='recovery');
+  const [open,setOpen]=useState(recoveryRedirect);
   const [password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   useEffect(()=>{if(!cloud)return;const {data}=cloud.auth.onAuthStateChange(event=>{if(event==='PASSWORD_RECOVERY')setOpen(true);if(event==='SIGNED_OUT'){setOpen(false);setPassword('');setConfirm('');}});return()=>data.subscription.unsubscribe();},[]);
   if(!open)return null;

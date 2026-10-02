@@ -7,6 +7,8 @@ const admin=createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SE
 Deno.serve(createHandler({admin,siteUrl,
   allowedOrigins:(Deno.env.get('JOBSEARCH_ALLOWED_ORIGINS')||new URL(siteUrl).origin).split(',').map(x=>x.trim()),
   fetch,
+  projectRef:new URL(Deno.env.get('SUPABASE_URL')!).hostname.split('.')[0],
+  managementToken:Deno.env.get('JOBSEARCH_MANAGEMENT_TOKEN'),
   resolveAddresses:async(host)=>{
     const results=await Promise.allSettled([Deno.resolveDns(host,'A'),Deno.resolveDns(host,'AAAA')]);
     return results.flatMap(r=>r.status==='fulfilled'?r.value:[]);

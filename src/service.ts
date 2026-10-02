@@ -3,12 +3,20 @@ import { evidenceFromProfile, type LlmInput, type MatchResult, type TailorResult
 import type { Job, Profile, Settings } from './types';
 export type { PublicLlmConfig, LlmConfig, LlmInput, MatchResult, TailorResult } from '../supabase/functions/_shared/llm';
 export { EFFORTS } from '../supabase/functions/_shared/llm';
+export type {SmtpConfig,SmtpState} from '../supabase/functions/_shared/smtp';
 export type ServiceStatus={isAdmin:boolean;configured:boolean;monthlyTokenBudget:number;usage:{used_tokens:number;reserved_tokens:number;month:string}};
 export type Account={id:string;email:string;createdAt:string;lastSignInAt:string|null;confirmed:boolean;isAdmin:boolean};
 export type LlmRun={id:string;user_id:string;operation:'match'|'tailor';status:'pending'|'succeeded'|'failed'|'uncertain';
   input:LlmInput;result:MatchResult|TailorResult|null;model:string;rules_version:string;created_at:string;
   input_hash:string;error_code:string|null;charged_tokens:number|null;usage_estimated:boolean};
 const messages:Record<string,string>={
+  smtp_management_required:'Введіть Supabase Management Token, щоб застосувати SMTP.',
+  smtp_management_failed:'Не вдалося прочитати поштові налаштування. Перевірте доступ токена до цього проєкту.',
+  smtp_update_failed:'Supabase відхилив поштові налаштування. Перевірте параметри та права токена.',
+  smtp_update_uncertain:'Результат застосування невідомий. Спочатку завантажте поточні налаштування й перевірте їх перед повтором.',
+  smtp_password_required:'Введіть пароль SMTP. Новий сервер або логін потребує нового пароля.',
+  invalid_smtp_host:'Введіть домен SMTP-сервера без протоколу й номера порту.',
+  invalid_smtp_port:'Номер порту має бути від 1 до 65535.',
   authentication_required:'Увійдіть у підтверджений акаунт.',admin_required:'Ця дія доступна лише адміністратору.',
   llm_unconfigured:'Адміністратор ще не налаштував LLM.',budget_exceeded:'Недостатньо місячного ліміту для цього запиту. Ліміт враховує резерв на відповідь.',
   request_in_progress:'Інший ваш запит ще обробляється. Оновіть історію трохи пізніше.',config_conflict:'Налаштування вже змінилися. Оновіть їх перед збереженням.',
