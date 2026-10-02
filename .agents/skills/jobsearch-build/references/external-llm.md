@@ -41,6 +41,8 @@ Keep source/job text and model output as data. Delimit source inputs and prevent
 
 Check schema/size, accepted enums, known fact IDs, intended employer/role, and the association with the requested inputs. Validate substantive claims against their actual facts, not merely the existence of a cited ID. Schema validation or a model's own assertion of correctness is not factual verification. Keep the result provisional where evidence is insufficient, and keep human review explicit.
 
+Current validators (`RULES_VERSION` v3): a number in a claim must occur in its cited evidence lines or the run fails; a number in the CV or letter text that occurs in no evidence line is returned as a review question naming the line, and the vacancy text never counts as support. Numbers and job quotes are compared after presentation-only normalization (separators, spacing, typographic quotes and dashes). The language guard is a keyword heuristic for English, French, German and Ukrainian; a model-reported `excluded` on a non-language requirement is read as `unknown`. Non-numeric entities in drafts are not verified.
+
 ## Save without losing history or edits
 
 LLM input/result snapshots and usage are saved in separate `llm_runs`/`llm_usage` tables with owner-only reads and service-only writes. Evidence IDs currently refer to lines of supplied profile text; they are not a verified fact ledger. The workspace packet stores optional `llmRunId` and `llmRulesVersion`; `parseBackup` preserves them. A JSON workspace backup does not include the separate server run history. Private templates remain richer references, not ready-made workspace payloads.
