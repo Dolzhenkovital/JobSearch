@@ -448,6 +448,9 @@ export const de: Record<MessageKey, string> = {
   "ai.stale.draft":
     "Die Eingabedaten haben sich geändert. Dieser Entwurf verwendet das gespeicherte Profil in Version {version}; prüfen Sie seine Aktualität.",
   "ai.needsCheck": "Prüfung erforderlich",
+  "ai.numbers.cv": "Lebenslauf: {numbers} nicht im Profil gefunden. Zeile: „{line}“",
+  "ai.numbers.letter": "Anschreiben: {numbers} nicht im Profil gefunden. Zeile: „{line}“",
+  "ai.numbers.omitted": "Weitere Zeilen mit Zahlen, die nicht im Profil stehen: {count}.",
   "ai.viewTexts": "Texte und Quellen ansehen",
   "ai.saveAsPacket": "Als neue Mappe speichern",
   "ai.history": "Anfrageverlauf ({count})",

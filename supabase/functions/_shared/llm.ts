@@ -1,5 +1,5 @@
 // Shared, pure contracts: safe to import in the browser and unit tests. No credentials here.
-export const RULES_VERSION = 'jobsearch-2026-10-02-v2';
+export const RULES_VERSION = 'jobsearch-2026-10-02-v3';
 export const EFFORTS = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type LlmConfig = {
   baseUrl: string; model: string; apiFormat: 'responses' | 'chat_completions';
@@ -32,9 +32,13 @@ export type MatchResult = {
   preferenceConflicts: string[]; score: number|null; coverage: number;
   decision: 'prioritize'|'consider'|'needs_information'|'deprioritize'; provisional: boolean;
 };
+// A CV or letter line with numbers that occur in no evidence line, quoted as written in the document.
+export type NumberLine = { document: 'cv'|'letter'; line: string; numbers: string[] };
 export type TailorResult = {
   cv: string; letter: string; changeSummary: string[];
   claims: { text: string; evidenceIds: string[] }[]; questions: string[];
+  // Absent in runs saved before rules v3. The interface localizes it; the server returns data, not text.
+  unsupportedNumbers?: { lines: NumberLine[]; omitted: number };
 };
 export class AppError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
@@ -82,8 +86,10 @@ export function evidenceFromProfile(profile: {cv:string;headline:string;summary:
 }
 export function parseInput(value: unknown, operation: Operation): LlmInput {
   const v=object(value), j=object(v.job), p=object(v.preferences);
-  if (!Number.isSafeInteger(v.profileVersion) || Number(v.profileVersion)<1 || !Array.isArray(v.evidence) || !v.evidence.length || v.evidence.length>500)
+  if (!Number.isSafeInteger(v.profileVersion) || Number(v.profileVersion)<1 || !Array.isArray(v.evidence) || !v.evidence.length)
     throw new AppError('profile_required');
+  // A long CV is not a missing one: report the size limit instead of asking for a CV.
+  if (v.evidence.length>500) throw new AppError('input_too_large');
   const evidence=v.evidence.map(raw=>{const e=object(raw); return {id:text(e.id,100),text:text(e.text,15000)};});
   if(new Set(evidence.map(e=>e.id)).size!==evidence.length) throw new AppError('invalid_input');
   if(!evidence.some(e=>e.id.startsWith('cv:'))) throw new AppError('profile_required');
@@ -160,15 +166,108 @@ function evidenceIds(value:unknown,input:LlmInput,required:boolean) {
   if((required&&!ids.length)||ids.some(id=>!input.evidence.some(e=>e.id===id))) throw new AppError('unsupported_evidence',502);
   return [...new Set(ids)];
 }
+// Language guard: a keyword backstop for the model's own language category, for English, French, German and
+// Ukrainian. Text becomes lowercase words; punctuation other than hyphens and apostrophes ends a phrase ("|").
+// An apostrophe inside a Ukrainian word belongs to it ("обов'язково"); elsewhere it separates ("l'anglais").
+const languageWords=(value:string)=>Array.from(value.normalize('NFKC').toLowerCase()
+  .replace(/(\p{Script=Cyrillic})['\u2019\u02bc](?=\p{Script=Cyrillic})/gu,'$1')
+  .matchAll(/[\p{L}\p{N}]+|[^\p{L}\p{N}\s'\u2019\u02bc\u2010\u2011-]/gu),([w])=>/[\p{L}\p{N}]/u.test(w)?w:'|');
+// Terms that name language proficiency on their own: "official languages", "langue", "bilingual", "CLB",
+// "Sprachkenntnisse", "мова". "Language" in other senses ("programming languages") is removed first.
+const LANGUAGE_TERM=new RegExp(' ('+[
+  '(official|second|first|foreign|both|working|spoken|written|native|sign) languages?',
+  'languages? (proficiency|skills?|requirements?|levels?|abilit\\p{L}*|fluency|competenc\\p{L}*|tests?|training)',
+  'linguistic (skills?|proficiency|requirements?|abilit\\p{L}*|profile)|(compétences?|exigences?|profil|niveau|connaissances?) linguistiques?',
+  'langues?|(bi|tri|multi|pluri)lingu\\p{L}*|clb|nclc|ielts|celpip|toefl|toeic|delf|dalf|tef|tcf|cefr|cecr',
+  '(fremd|mutter)?sprach\\p{L}*|\\p{L}*sprachig\\p{L}*|(englisch|franz(ö|oe|o)sisch|deutsch)kenntniss\\p{L}*',
+  'мов(а|и|і|у|ою|ами|ах|ам)?|(дво|багато)?мовн\\p{L}*',
+].join('|')+') ','u');
+const OTHER_LANGUAGE=/ ((programming|scripting|query|markup|coding|modell?ing) languages?|мов\p{L}* (програмуван|розмітк|запит)\p{L}*|мовн\p{L}* модел\p{L}*)(?= )/gu;
+// A language name can also describe something else: "French clients", "clients français", "французькі клієнти".
+// English, German and Ukrainian adjectives precede that noun and French ones follow it, so the word on that side
+// decides. A name stands for the language when that word is absent, neutral or about proficiency.
+const NAME_BEFORE_NOUN=/^(english|french|german|englisch|franz(ö|oe|o)sisch|deutsch|(англійськ|французьк|німецьк)\p{L}*)$/u;
+const NAME_AFTER_NOUN=/^(anglaise?s?|fran[cç]aise?s?|allemande?s?)$/u;
+const words=(list:string)=>new Set(list.split(' '));
+const PROFICIENCY=words('speak speaks speaking spoken speaker speakers write writes writing written read reads reading oral orally '+
+  'verbal verbally fluent fluently fluency proficient proficiency level levels knowledge command mastery communicate communicating '+
+  'communication communications conversational native skill skills ability language languages '+
+  'parler parle parlez parlé parlée parlés parlées écrit écrite écrits écrites écrire lire orale oraux courant courante couramment '+
+  'maîtrise maîtriser maitrise maitriser connaissance connaissances niveau compétence compétences communiquer compréhension '+
+  'sprechen spricht gesprochen schriftlich mündlich fließend fliessend verhandlungssicher verhandlungssichere verhandlungssicheres '+
+  'verhandlungssicheren kenntnis kenntnisse kommunikation kommunizieren '+
+  'знання володіння володієте володіти рівень рівні рівня вільне вільно вільний вільна усна усний усне усно письмова письмовий '+
+  'письмове письмово розмовна розмовний розмовне спілкування спілкуватися говорити розмовляти писати читати a1 a2 b1 b2 c1 c2');
+const NEUTRAL=words('a an the and or is are be must required require requires requirement requirements mandatory essential '+
+  'necessary needed asset assets preferred desirable nice plus bonus advantage also both either with in of at to for as would '+
+  'will considered strong good excellent basic intermediate advanced very do you your can what how '+
+  'un une le la les l d de du des et ou en est sont requis requise exigé exigée obligatoire nécessaire atout souhaité souhaitée '+
+  'souhaitable bon bonne très excellent excellente parfait parfaite votre quel quelle '+
+  'und oder auf mit ist sind erforderlich wünschenswert von vorteil vorteilhaft sehr gut gute gutes guten sicher sichere ein eine '+
+  'der die das zwingend '+
+  'на з із зі та і й або чи є буде бажано бажана бажаний обовязково обовязкова обовязковий перевага перевагою плюс плюсом для '+
+  'у в добре добра добрий високий середній базовий ви ваш ваша який яка');
+const CONJUNCTION=words('and or et ou und oder і й та або чи');
+export function languageCriterion(value:string):boolean {
+  const phrase=` ${languageWords(value).join(' ')} `.replace(OTHER_LANGUAGE,' | ');
+  if(LANGUAGE_TERM.test(phrase))return true;
+  const w=phrase.trim().split(/ +/);
+  const name=(x?:string)=>!!x&&(NAME_BEFORE_NOUN.test(x)||NAME_AFTER_NOUN.test(x));
+  const free=(x?:string)=>x===undefined||x==='|'||name(x)||PROFICIENCY.has(x)||NEUTRAL.has(x);
+  for(let start=0;start<w.length;start++){
+    if(!name(w[start]))continue;
+    // "English and French" is one phrase: the words around all of it decide.
+    let end=start;
+    while(name(w[end+1])||(CONJUNCTION.has(w[end+1])&&name(w[end+2])))end+=name(w[end+1])?1:2;
+    const names=w.slice(start,end+1).filter(x=>name(x)),before=w[start-1],after=w[end+1];
+    if(PROFICIENCY.has(before??'')||PROFICIENCY.has(after??''))return true;
+    if(!(names.some(x=>NAME_BEFORE_NOUN.test(x))&&!free(after))&&!(names.some(x=>NAME_AFTER_NOUN.test(x))&&!free(before)))return true;
+    start=end;
+  }
+  return false;
+}
+// Job quotes are compared after removing presentation differences only: the glyphs of quotes, apostrophes
+// (including the Ukrainian ʼ) and dashes, spacing inside guillemets, invisible format characters, non-breaking
+// spaces and line breaks. Wording and letter case must still match.
+const QUOTE_MARK=/[\p{Pi}\p{Pf}'"`\u00b4\u201a\u201e\u2032\u2033\u2035\u2036\u02b9\u02ba\u02bb\u02bc\u02bd]/gu;
+const marks=(value:string)=>value.replace(/([\u00ab\u2039])\s+|\s+([\u00bb\u203a])/gu,'$1$2').replace(QUOTE_MARK,"'").replace(/[\p{Pd}\u2212]/gu,'-');
+const plainQuote=(value:string)=>marks(marks(value).normalize('NFKC')).replace(/\p{Cf}/gu,'').replace(/\s+/g,' ').trim();
+// Numbers are compared in canonical form, so formatting alone never decides support:
+// "1 500", "1,500" and "1.500" become "1500"; "1,5" becomes "1.5"; "10 %" and "10 percent" become "10%".
+const THIN_SPACES=' \\u00a0\\u2009\\u202f';
+const numberPattern=(separators:string)=>new RegExp(`(?:(?<![\\p{L}\\d])([1-9]\\d{0,2}([${separators}])\\d{3}(?:\\2\\d{3})*)(?!\\d)|(\\d+))(?:[.,](\\d+))?`+
+  `([${THIN_SPACES}]?(?:%|percent|per cent|pour cent|pourcent|prozent|відсотк|процент))?`,'giu');
+// Digits grouped by single spaces ("1 500") are one number, as a reader sees them. Evidence is trusted, so its
+// numbers are also read separately ("5 200-seat halls" as 5 and 200).
+const GROUPED=numberPattern(`${THIN_SPACES}.,'\\u2019`),SEPARATE=numberPattern(`.,'\\u2019`);
+// Dotted or slashed dates ("07.2021", "1.3.2022") are separate numbers, not decimals.
+const DATE=/(^|\D)(\d{1,2})[./](?:(\d{1,2})[./])?(\d{4})(?!\d)/g;
+function numbers(value:string,pattern:RegExp):{value:string;text:string}[] {
+  return Array.from(value.replace(DATE,'$1$2 $3 $4').matchAll(pattern),([match,grouped,,plain,decimals,percent])=>{
+    const whole=(grouped?grouped.replace(/\D/g,''):plain).replace(/^0+(?=\d)/,''),fraction=(decimals||'').replace(/0+$/,'');
+    return {value:`${whole}${fraction?`.${fraction}`:''}${percent?'%':''}`,text:match.trim()};
+  });
+}
+const supportedNumbers=(texts:string[])=>new Set(texts.flatMap(x=>[GROUPED,SEPARATE].flatMap(p=>numbers(x,p).map(n=>n.value))));
+const unsupported=(value:string,supported:Set<string>,pattern=GROUPED)=>numbers(value,pattern).filter(n=>!supported.has(n.value));
+const MAX_NUMBER_LINES=10;
+function numberLines(document:NumberLine['document'],value:string,supported:Set<string>):NumberLine[] {
+  return value.split('\n').map(line=>line.trim()).flatMap(line=>{
+    const found=[...new Set(unsupported(line,supported).map(n=>n.text))];
+    return found.length?[{document,line:line.length>160?`${line.slice(0,160)}…`:line,numbers:found}]:[];
+  });
+}
 export function validateMatch(raw:unknown,input:LlmInput):MatchResult {
   const v=object(raw);
   if(!Array.isArray(v.requirements)||!v.requirements.length||v.requirements.length>30)throw new AppError('invalid_output',502);
-  const languageCriterion=(value:string)=>/\b(english|french|german|anglais|fran[cç]ais|allemand|englisch|franz[oö]sisch|deutsch|bilingual|bilingue|zweisprachig|fluency|fluent|language proficiency|sprachkenntnisse)\b|володіння мов|рівень мов|англійськ|французьк|німецьк/i.test(value);
+  const source=plainQuote(`${input.job.title}\n${input.job.description}`);
   const requirements=v.requirements.map(raw=>{const r=object(raw);
     const category:Requirement['category']=languageCriterion(text(r.requirement))?'language':choice(r.category,['skills','experience','duties','education','language']);
-    const status:Requirement['status']=category==='language'?'excluded':choice(r.status,['supported','transferable','unknown','contradicted']);
-    const jobQuote=text(r.jobQuote,2000);
-    if(!`${input.job.title}\n${input.job.description}`.includes(jobQuote))throw new AppError('unsupported_job_quote',502);
+    // The schema lets the model return excluded for any requirement; outside languages that is only "not assessed".
+    const reported=category==='language'?'excluded':choice(r.status,['supported','transferable','unknown','contradicted','excluded']);
+    const status:Requirement['status']=category!=='language'&&reported==='excluded'?'unknown':reported;
+    const jobQuote=text(r.jobQuote,2000),quote=plainQuote(jobQuote);
+    if(!quote||!source.includes(quote))throw new AppError('unsupported_job_quote',502);
     return {requirement:text(r.requirement),jobQuote,category,importance:choice(r.importance,['required','preferred']),status,
       evidenceIds:evidenceIds(r.evidenceIds,input,['supported','transferable','contradicted'].includes(status)),explanation:text(r.explanation)};
   });
@@ -190,10 +289,18 @@ export function validateTailor(raw:unknown,input:LlmInput):TailorResult {
   if(!Array.isArray(v.claims)||!v.claims.length||v.claims.length>150)throw new AppError('unsupported_evidence',502);
   const claims=v.claims.map(raw=>{
     const c=object(raw), claim=text(c.text,3000), ids=evidenceIds(c.evidenceIds,input,true);
-    const sources=ids.map(id=>input.evidence.find(e=>e.id===id)!.text).join('\n');
-    const numbers=(value:string):string[]=>Array.from(value.match(/\d+(?:[.,]\d+)?%?/g)||[]);
-    if(numbers(claim).some(n=>!numbers(sources).includes(n)))throw new AppError('unsupported_evidence',502);
+    const sources=supportedNumbers(ids.map(id=>input.evidence.find(e=>e.id===id)!.text));
+    // A cited claim fails the charged run only when neither reading of its spaces is supported ("5 200-seat
+    // halls" may be five halls); the same number in the CV or letter is still reported below.
+    if(unsupported(claim,sources).length&&unsupported(claim,sources,SEPARATE).length)throw new AppError('unsupported_evidence',502);
     return {text:claim,evidenceIds:ids};
   });
-  return {cv,letter,claims,changeSummary:strings(v.changeSummary,15),questions:strings(v.questions,15)};
+  // The model's own claim list cannot vouch for the documents, so every number in the CV and letter must occur
+  // in candidate evidence; the vacancy text never counts. Dates and derived values can be legitimate, so such
+  // lines are returned for review instead of failing a charged run.
+  const supported=supportedNumbers(input.evidence.map(e=>e.text));
+  const found=[numberLines('cv',cv,supported),numberLines('letter',letter,supported)];
+  const lines=found.flatMap(x=>x.slice(0,MAX_NUMBER_LINES));
+  return {cv,letter,claims,changeSummary:strings(v.changeSummary,15),questions:strings(v.questions,15).filter(x=>!languageCriterion(x)),
+    unsupportedNumbers:{lines,omitted:found.flat().length-lines.length}};
 }
