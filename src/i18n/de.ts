@@ -253,6 +253,8 @@ export const de: Record<MessageKey, string> = {
     "Der Entwurf der Mappe ist erstellt. Passen Sie den Text an und prüfen Sie die Fakten.",
   "toast.profileSaved": "Profil gespeichert",
   "toast.imported": "Importierte Stellen: {count}",
+  "toast.importedPartly":
+    "Importierte Stellen: {count}. Übersprungen: {skipped} – Ihr Bereich fasst höchstens {max} Stellen, und Einträge mit zu großen Feldern werden nicht importiert.",
   "toast.settingsSaved": "Einstellungen gespeichert",
   "toast.restored":
     "Die Kopie ist wiederhergestellt. Die vorherige Version wurde separat heruntergeladen.",
@@ -540,6 +542,8 @@ export const de: Record<MessageKey, string> = {
     "Der Browser konnte die Änderungen nicht speichern. Erstellen Sie in den Einstellungen eine Sicherungskopie.",
   "workspace.syncUnavailable":
     "Die Synchronisierung ist nicht verfügbar. Lokale Änderungen sind gespeichert; wir versuchen es erneut.",
+  "workspace.tooLarge":
+    "Die Cloud hat die Änderungen nicht angenommen: Ihr Bereich überschreitet 5 MB. Die Änderungen bleiben auf diesem Gerät. Speichern Sie in den Einstellungen eine Sicherungskopie und kürzen Sie die Texte von Dokumenten oder Stellen.",
   "workspace.localCorrupted":
     "Die lokale Kopie ist beschädigt. Sie wurde nicht überschrieben. Stellen Sie über die Einstellungen eine Sicherung wieder her.",
   "workspace.cloudOpenFailed":
@@ -548,6 +552,15 @@ export const de: Record<MessageKey, string> = {
     "Der gespeicherte Bereich konnte nicht gelesen werden. Die ursprüngliche Kopie wurde zur Wiederherstellung aufbewahrt; die Synchronisierung ist pausiert.",
   "workspace.backupFailed":
     "Es konnte keine Kopie erstellt werden. Exportieren Sie zuerst die Daten.",
+  "workspace.changeRejected": "Die Änderung wurde nicht gespeichert. {reason}",
+  "workspace.limit.jobs":
+    "Zu viele Stellen: Ihr Bereich fasst höchstens {max}.",
+  "workspace.limit.applications":
+    "Zu viele gemerkte Stellen und Bewerbungen: Ihr Bereich fasst höchstens {max}.",
+  "workspace.limit.packets":
+    "Zu viele Dokumentenmappen: Ihr Bereich fasst höchstens {max}.",
+  "workspace.limit.size":
+    "Ihr Bereich ist zu groß: Alle Daten zusammen müssen in 5 MB passen.",
 
   "error.format": "Ungültiges Datenformat.",
   "error.textField": "Ungültiges oder zu großes Textfeld.",
@@ -563,7 +576,6 @@ export const de: Record<MessageKey, string> = {
   "error.salaryAmount": "Ungültiger Vergütungsbetrag.",
   "error.settings": "Ungültige Einstellungen.",
   "error.lists": "Ungültige Liste von Stellen oder Dokumenten.",
-  "error.tooManyApplications": "Zu viele Bewerbungen.",
   "error.applicationState": "Ungültiger Status der Bewerbung.",
   "error.packetVersion": "Ungültige Version der Mappe.",
   "error.packetRequirements":

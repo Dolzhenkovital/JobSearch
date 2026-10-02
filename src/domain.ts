@@ -40,7 +40,15 @@ export const sourceLabel = (source: string): string =>
     : source === RSS_SOURCE
       ? t("source.rss")
       : source;
-export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+// One set of limits for every device and the cloud; `bytes` mirrors the `workspace_size`
+// constraint in the workspace migration.
+export const WORKSPACE_LIMITS = {
+  jobs: 2000,
+  applications: 2000,
+  packets: 500,
+  bytes: 5 * 1024 * 1024,
+} as const;
+export const MAX_IMPORT_BYTES = WORKSPACE_LIMITS.bytes;
 export const initialStore = (): Store => ({
   schemaVersion: 1,
   profile: {
@@ -254,10 +262,52 @@ export function parseFeed(value: unknown): Feed {
     jobs: v.jobs.map(validateJob),
   };
 }
-export function parseBackup(text: string): Store {
-  if (new Blob([text]).size > MAX_IMPORT_BYTES)
-    throw new Error(t("error.fileTooLarge"));
-  const v = record(JSON.parse(text));
+const tooMany = (limit: "jobs" | "applications" | "packets") =>
+  new Error(t(`workspace.limit.${limit}`, { max: WORKSPACE_LIMITS[limit] }));
+function jsonStringBytes(text: string): number {
+  let bytes = 2;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code === 0x22 || code === 0x5c) bytes += 2;
+    // \b \t \n \f \r have short escapes; other control characters become \u00XX.
+    else if (code < 0x20) bytes += "\b\t\n\f\r".includes(text[i]) ? 2 : 6;
+    else if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code < 0xd800 || code > 0xdfff) bytes += 3;
+    else if (code < 0xdc00 && (text.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      bytes += 4;
+      i++;
+    } else bytes += 6; // JSON escapes a lone surrogate as \udXXX.
+  }
+  return bytes;
+}
+/**
+ * Byte size of a value as the cloud measures it for `workspace_size`
+ * (`octet_length(payload::text)`): UTF-8 JSON with a space after every `:` and `,`.
+ * Walks the value instead of serializing it.
+ */
+export function storedBytes(value: unknown): number {
+  if (typeof value === "string") return jsonStringBytes(value);
+  if (Array.isArray(value))
+    return value.reduce<number>(
+      (bytes, item) => bytes + storedBytes(item ?? null),
+      2 + 2 * Math.max(0, value.length - 1),
+    );
+  if (value && typeof value === "object") {
+    let bytes = 2,
+      members = 0;
+    for (const [key, item] of Object.entries(value)) {
+      if (item === undefined) continue;
+      bytes += jsonStringBytes(key) + 2 + storedBytes(item);
+      members++;
+    }
+    return bytes + 2 * Math.max(0, members - 1);
+  }
+  return JSON.stringify(value ?? null).length;
+}
+/** Validate a parsed workspace (structure, field lengths, item counts) and return a clean copy. */
+export function validateStore(value: unknown): Store {
+  const v = record(value);
   if (v.schemaVersion !== 1)
     throw new Error(t("error.backupVersion"));
   const p = record(v.profile),
@@ -294,17 +344,14 @@ export function parseBackup(text: string): Store {
   base.settings.documentLanguage =
     s.documentLanguage as Settings["documentLanguage"];
   base.settings.applyPreferences = s.applyPreferences;
-  if (
-    !Array.isArray(v.jobs) ||
-    v.jobs.length > 2000 ||
-    !Array.isArray(v.packets) ||
-    v.packets.length > 500
-  )
+  if (!Array.isArray(v.jobs) || !Array.isArray(v.packets))
     throw new Error(t("error.lists"));
+  if (v.jobs.length > WORKSPACE_LIMITS.jobs) throw tooMany("jobs");
+  if (v.packets.length > WORKSPACE_LIMITS.packets) throw tooMany("packets");
   base.jobs = v.jobs.map(validateJob);
   const apps = record(v.applications);
-  if (Object.keys(apps).length > 2000)
-    throw new Error(t("error.tooManyApplications"));
+  if (Object.keys(apps).length > WORKSPACE_LIMITS.applications)
+    throw tooMany("applications");
   for (const [id, raw] of Object.entries(apps)) {
     const a = record(raw),
       job = validateJob(a.job);
@@ -343,6 +390,24 @@ export function parseBackup(text: string): Store {
     };
   });
   return base;
+}
+export function parseBackup(text: string): Store {
+  if (new Blob([text]).size > MAX_IMPORT_BYTES)
+    throw new Error(t("error.fileTooLarge"));
+  const store = validateStore(JSON.parse(text));
+  if (storedBytes(store) > WORKSPACE_LIMITS.bytes)
+    throw new Error(t("workspace.limit.size"));
+  return store;
+}
+/**
+ * Write-side check for a changed workspace: it must stay readable by `validateStore` on every
+ * device and fit the cloud's size limit. A workspace that is already too large may still shrink.
+ */
+export function assertStorable(next: Store, current: Store): void {
+  validateStore(next);
+  const bytes = storedBytes(next);
+  if (bytes > WORKSPACE_LIMITS.bytes && bytes >= storedBytes(current))
+    throw new Error(t("workspace.limit.size"));
 }
 
 export function aiPrompt(
@@ -417,7 +482,11 @@ export function createPacket(
   };
 }
 
-export function parseAtom(xml: string): Job[] {
+/**
+ * Read an RSS/Atom file. `skipped` counts the entries left out: those past the workspace job
+ * limit and those whose fields a workspace cannot hold.
+ */
+export function parseAtom(xml: string): { jobs: Job[]; skipped: number } {
   if (xml.length > MAX_IMPORT_BYTES || /<!DOCTYPE/i.test(xml))
     throw new Error(t("error.xml"));
   const doc = new DOMParser().parseFromString(xml, "application/xml");
@@ -429,7 +498,7 @@ export function parseAtom(xml: string): Job[] {
   ];
   if (!entries.length) throw new Error(t("error.feedEmpty"));
   const now = new Date().toISOString();
-  return entries.slice(0, 1000).map((entry) => {
+  const parsed = entries.slice(0, WORKSPACE_LIMITS.jobs).map((entry) => {
     const get = (tag: string) =>
       entry.getElementsByTagNameNS("*", tag)[0]?.textContent?.trim() || "";
     const linkNode = [...entry.getElementsByTagNameNS("*", "link")].find(
@@ -472,4 +541,39 @@ export function parseAtom(xml: string): Job[] {
       availability: "unknown" as const,
     };
   });
+  const jobs = parsed.filter((job) => {
+    try {
+      validateJob(job);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return { jobs, skipped: entries.length - jobs.length };
+}
+/**
+ * Merge imported jobs into the private list. A job that is already there is refreshed; new
+ * ones are added only while the workspace job limit allows it.
+ */
+export function mergeImportedJobs(
+  current: Job[],
+  incoming: Job[],
+): { jobs: Job[]; imported: number; skipped: number } {
+  const all = new Map(current.map((job) => [job.id, job]));
+  const unique = new Map(incoming.map((job) => [job.id, job]));
+  let skipped = 0;
+  for (const [id, job] of unique) {
+    const retained = all.get(id);
+    if (retained)
+      // As in combineJobs, a refreshed snippet does not replace a full description.
+      all.set(
+        id,
+        retained.completeness === "full"
+          ? { ...job, description: retained.description, completeness: "full" }
+          : job,
+      );
+    else if (all.size < WORKSPACE_LIMITS.jobs) all.set(id, job);
+    else skipped++;
+  }
+  return { jobs: [...all.values()], imported: unique.size - skipped, skipped };
 }

@@ -5,13 +5,15 @@ import {
   fetchRemote,
   pushRemote,
   syncDecision,
+  workspaceTooLarge,
   type Remote,
 } from "./cloud";
 import {
+  assertStorable,
   contentVersion,
   initialStore,
-  parseBackup,
   STORAGE_KEY,
+  validateStore,
 } from "./domain";
 import { t } from "./i18n";
 import type { Store } from "./types";
@@ -56,7 +58,7 @@ function read(id: string | null): Cache {
     )
       throw new Error(t("error.workspaceVersion"));
     return {
-      store: parseBackup(JSON.stringify(value.store)),
+      store: validateStore(value.store),
       revision: value.revision,
       dirty: value.dirty,
     };
@@ -121,9 +123,23 @@ export function useWorkspace() {
     // A cloud copy that took precedence (not dirty) leaves the guest data untouched.
     if (value.dirty) localStorage.removeItem(cacheKey(null));
   }, []);
+  /** Apply a change, or throw a translated error and keep the workspace as it was. */
   const update = useCallback(
     (fn: (store: Store) => Store) => {
-      persist({ ...live.current, store: fn(live.current.store), dirty: true });
+      const current = live.current.store;
+      const store = fn(current);
+      try {
+        // A state that reading rejects would lock this workspace on every device.
+        assertStorable(store, current);
+      } catch (failure) {
+        throw new Error(
+          t("workspace.changeRejected", {
+            reason: (failure as Error).message,
+          }),
+          { cause: failure },
+        );
+      }
+      persist({ ...live.current, store, dirty: true });
       if (owner.current) setStatus("syncing");
     },
     [persist],
@@ -191,7 +207,13 @@ export function useWorkspace() {
         }
       } else {
         setStatus("offline");
-        setError(t("workspace.syncUnavailable"));
+        setError(
+          t(
+            workspaceTooLarge(failure)
+              ? "workspace.tooLarge"
+              : "workspace.syncUnavailable",
+          ),
+        );
       }
     } finally {
       if (generation === epoch.current) busy.current = false;

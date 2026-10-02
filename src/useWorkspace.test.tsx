@@ -2,7 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { initialStore, STORAGE_KEY } from "./domain";
+import { initialStore, STORAGE_KEY, WORKSPACE_LIMITS } from "./domain";
+import { t } from "./i18n";
+import type { Job } from "./types";
 import { useWorkspace } from "./useWorkspace";
 
 const backend = vi.hoisted(() => ({
@@ -181,6 +183,105 @@ describe("workspace synchronization lifecycle", () => {
     expect(workspace.user).toBeNull();
     expect(workspace.store.profile.name).toBe("");
     expect(workspace.status).toBe("local");
+  });
+});
+
+describe("workspace limits", () => {
+  const job = (id: string): Job => ({
+    id,
+    title: "Synthetic coordinator",
+    employer: "Example Co",
+    location: "",
+    salary: "",
+    url: "",
+    source: "Job Bank",
+    description: "",
+    completeness: "snippet",
+    publishedAt: null,
+    firstSeenAt: "2026-10-01T12:00:00Z",
+    checkedAt: "2026-10-01T12:00:00Z",
+    availability: "unknown",
+  });
+
+  it("rejects a change past the job limit and keeps the stored workspace", async () => {
+    const full = initialStore();
+    full.jobs = Array.from({ length: WORKSPACE_LIMITS.jobs }, (_, i) =>
+      job(`synthetic:${i}`),
+    );
+    backend.fetch.mockResolvedValue({ store: full, revision: 5 });
+    await mount();
+    const cached = localStorage.getItem(accountKey);
+    let failure: unknown;
+    await act(async () => {
+      try {
+        workspace.update((s) => ({ ...s, jobs: [...s.jobs, job("extra")] }));
+      } catch (error) {
+        failure = error;
+      }
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect((failure as Error).message).toBe(
+      t("workspace.changeRejected", {
+        reason: t("workspace.limit.jobs", { max: WORKSPACE_LIMITS.jobs }),
+      }),
+    );
+    expect(workspace.store).toBe(full);
+    expect(localStorage.getItem(accountKey)).toBe(cached);
+    expect(workspace.status).toBe("synced");
+    expect(backend.push).not.toHaveBeenCalled();
+    // A full workspace still accepts changes that do not add a job.
+    await act(async () => {
+      workspace.update((s) => ({
+        ...s,
+        jobs: [...s.jobs.slice(1), job("replacement")],
+      }));
+    });
+    expect(workspace.store.jobs).toHaveLength(WORKSPACE_LIMITS.jobs);
+    expect(JSON.parse(localStorage.getItem(accountKey)!).dirty).toBe(true);
+  });
+  it("rejects a field that reading the workspace would refuse", async () => {
+    backend.fetch.mockResolvedValue({ store: initialStore(), revision: 1 });
+    await mount();
+    expect(() =>
+      workspace.update((s) => ({
+        ...s,
+        jobs: [{ ...job("long"), title: "x".repeat(1001) }],
+      })),
+    ).toThrow(
+      t("workspace.changeRejected", { reason: t("error.textField") }),
+    );
+    expect(workspace.store.jobs).toEqual([]);
+  });
+  it("names an oversized workspace when the cloud refuses the upload", async () => {
+    backend.fetch.mockResolvedValue({ store: initialStore(), revision: 2 });
+    await mount();
+    await act(async () => {
+      workspace.update((s) => ({
+        ...s,
+        profile: { ...s.profile, name: "Local edit" },
+      }));
+    });
+    backend.push.mockRejectedValue({
+      code: "23514",
+      message:
+        'new row for relation "workspaces" violates check constraint "workspace_size"',
+    });
+    await act(async () => {
+      await workspace.sync();
+    });
+    expect(workspace.error).toBe(t("workspace.tooLarge"));
+    expect(workspace.status).toBe("offline");
+    expect(workspace.conflict).toBeNull();
+    const cached = JSON.parse(localStorage.getItem(accountKey)!);
+    expect(cached).toMatchObject({ revision: 2, dirty: true });
+    expect(cached.store.profile.name).toBe("Local edit");
+
+    backend.push.mockRejectedValue(new TypeError("Failed to fetch"));
+    await act(async () => {
+      workspace.clearError();
+      await workspace.sync();
+    });
+    expect(workspace.error).toBe(t("workspace.syncUnavailable"));
   });
 });
 
