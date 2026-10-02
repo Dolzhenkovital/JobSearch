@@ -52,6 +52,20 @@ jobs:
         run: |
           python -m pip install --quiet pyflakes==4.0.0
           python -m pyflakes scripts
+      # The Edge Function runs on Supabase Edge Runtime, which embeds Deno 2.1.4
+      # (supabase/edge-runtime: deno/Cargo.toml). The steps above check it only as Node code.
+      - name: Install Deno (the Edge Runtime version)
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: 2.1.4
+      - name: Type-check the Edge Function with Deno
+        run: |
+          # Resolve imports as the runtime does: through the import map named in
+          # supabase/config.toml and the lock file next to it, a v5 lock converted to v4 on read.
+          # --frozen fails when the committed lock does not pin the whole dependency graph.
+          python .github/scripts/deno_lock_v4.py supabase/functions/deno.lock "$RUNNER_TEMP/deno.lock"
+          deno check --frozen --config supabase/functions/deno.json --lock="$RUNNER_TEMP/deno.lock" \
+            supabase/functions/jobsearch-api/index.ts
 
   test:
     name: Unit tests
