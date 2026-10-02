@@ -20,6 +20,8 @@ GitHub Pages is a public static client. `jobsearch-api` validates the caller wit
 
 `supabase/functions/_shared/llm.ts` owns payloads, schemas, prompts and `RULES_VERSION`. Responses uses `text.format`; Chat Completions uses `response_format`. Default effort omits the parameter. Requests use HTTPS public host checks, no redirects, fixed output caps and a timeout; they do not automatically retry. [Structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [reasoning](https://developers.openai.com/api/docs/guides/reasoning) were checked on 2026-10-02. Host validation is a preflight DNS check, not a network-level egress sandbox.
 
+Pages publishes the client automatically, while the Edge Function is deployed manually. The `status` action therefore returns the deployed `rulesVersion`, and the admin LLM tab warns when it is missing or differs from the client's `RULES_VERSION`. Function changes that keep `RULES_VERSION` are not detected and still need a deployment.
+
 Authenticate the account at the adapter, bind input/report/packet access to that account, and preserve the database ownership/revision checks. Client-supplied IDs alone are not authorization. Keep per-account usage limits, bounded requests, and safe error handling in the adapter. Do not place a management or service-role key in the browser to enable inference.
 
 If a separately authorized user-operated LLM or external endpoint is used instead, document its actual input/output route. The current clipboard prompt is a useful manual fallback; it is not evidence of an integrated external API.
