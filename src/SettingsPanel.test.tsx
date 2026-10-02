@@ -76,65 +76,6 @@ afterEach(async () => {
   container.remove();
 });
 
-describe("settings while cloud data changes", () => {
-  it("refreshes untouched fields without reopening the dialog", async () => {
-    await render();
-    workspace.store = {
-      ...workspace.store,
-      settings: { ...workspace.store.settings, documentLanguage: "en" },
-    };
-    await render();
-    expect(field<HTMLSelectElement>("Мова нових документів").value).toBe("en");
-    expect(workspace.update).not.toHaveBeenCalled();
-  });
-
-  it("preserves an unsaved edit and saves it without reverting remote fields", async () => {
-    await render();
-    await editCity("Synthetic city");
-    workspace.store = {
-      ...workspace.store,
-      settings: {
-        ...workspace.store.settings,
-        city: "Remote city",
-        documentLanguage: "en",
-      },
-    };
-    await render();
-    expect(field<HTMLInputElement>("Місто або регіон").value).toBe("Synthetic city");
-    expect(field<HTMLSelectElement>("Мова нових документів").value).toBe("en");
-    // A further update can arrive after rendering but before the save callback.
-    workspace.store = {
-      ...workspace.store,
-      settings: { ...workspace.store.settings, roles: "Remote role" },
-    };
-    await act(async () => {
-      container.querySelector("form")!.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true }),
-      );
-    });
-    expect(workspace.store.settings).toMatchObject({
-      city: "Synthetic city",
-      documentLanguage: "en",
-      roles: "Remote role",
-    });
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("discards another account's draft and does not resurrect it after switching back", async () => {
-    await render();
-    await editCity("Account A draft");
-    workspace.user = { id: "synthetic-owner-b" } as User;
-    workspace.store = initialStore();
-    workspace.store.settings.city = "Account B city";
-    await render();
-    expect(field<HTMLInputElement>("Місто або регіон").value).toBe("Account B city");
-    workspace.user = { id: "synthetic-owner-a" } as User;
-    workspace.store = initialStore();
-    await render();
-    expect(field<HTMLInputElement>("Місто або регіон").value).toBe("");
-  });
-});
-
 describe("restoring a backup", () => {
   const job: Job = {
     id: "synthetic:0",
@@ -206,5 +147,64 @@ describe("restoring a backup", () => {
     expect(read).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(t("error.fileTooLarge"));
     expect(container.textContent).not.toContain(t("data.restoreConfirm.title"));
+  });
+});
+
+describe("settings while cloud data changes", () => {
+  it("refreshes untouched fields without reopening the dialog", async () => {
+    await render();
+    workspace.store = {
+      ...workspace.store,
+      settings: { ...workspace.store.settings, documentLanguage: "en" },
+    };
+    await render();
+    expect(field<HTMLSelectElement>("Мова нових документів").value).toBe("en");
+    expect(workspace.update).not.toHaveBeenCalled();
+  });
+
+  it("preserves an unsaved edit and saves it without reverting remote fields", async () => {
+    await render();
+    await editCity("Synthetic city");
+    workspace.store = {
+      ...workspace.store,
+      settings: {
+        ...workspace.store.settings,
+        city: "Remote city",
+        documentLanguage: "en",
+      },
+    };
+    await render();
+    expect(field<HTMLInputElement>("Місто або регіон").value).toBe("Synthetic city");
+    expect(field<HTMLSelectElement>("Мова нових документів").value).toBe("en");
+    // A further update can arrive after rendering but before the save callback.
+    workspace.store = {
+      ...workspace.store,
+      settings: { ...workspace.store.settings, roles: "Remote role" },
+    };
+    await act(async () => {
+      container.querySelector("form")!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(workspace.store.settings).toMatchObject({
+      city: "Synthetic city",
+      documentLanguage: "en",
+      roles: "Remote role",
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("discards another account's draft and does not resurrect it after switching back", async () => {
+    await render();
+    await editCity("Account A draft");
+    workspace.user = { id: "synthetic-owner-b" } as User;
+    workspace.store = initialStore();
+    workspace.store.settings.city = "Account B city";
+    await render();
+    expect(field<HTMLInputElement>("Місто або регіон").value).toBe("Account B city");
+    workspace.user = { id: "synthetic-owner-a" } as User;
+    workspace.store = initialStore();
+    await render();
+    expect(field<HTMLInputElement>("Місто або регіон").value).toBe("");
   });
 });
