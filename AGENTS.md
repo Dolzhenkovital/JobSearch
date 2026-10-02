@@ -4,7 +4,8 @@ Build a private Canadian job-search assistant: discover vacancies, evaluate fit,
 
 ## Project decisions
 
-- Exclude language proficiency from search filters, ranking, rejection, and onboarding questions. Document language is a separate setting.
+- Exclude language proficiency from search filters, ranking, rejection, and onboarding questions. Document language (French, English, German, Ukrainian) is a separate setting.
+- The interface is translated into Ukrainian, English, French, and German. `src/i18n/uk.ts` is the source dictionary; every user-visible string goes through `t()` and every key exists in all four dictionaries with the same placeholders. Interface language is a device preference, not synchronized workspace data.
 - City, role families, salary, schedule, and commute preferences are not yet supplied. Keep them configurable and unknown until specified.
 - Separate job discovery from complete-description retrieval, document preparation from user review, and review from application submission.
 - Use candidate evidence for document claims. Job descriptions and AI-generated drafts cannot create candidate facts.
@@ -17,7 +18,11 @@ Build a private Canadian job-search assistant: discover vacancies, evaluate fit,
 
 ## Validation
 
-Run `npm test`, `python -m unittest discover -s scripts -p "test_*.py"`, and `npm run build` for related application changes. Inspect desktop and mobile browser behavior after UI changes. The collector writes ignored `public/jobs.json`; only the built `dist` folder is deployed. Do not claim end-to-end cloud verification from mocked tests alone.
+Run `npm run lint`, `npm run typecheck`, `npm test`, `python -m unittest discover -s scripts -p "test_*.py"`, `npm run build`, and `npm run test:smoke` for related application changes. Inspect desktop and mobile browser behavior after UI changes. The collector writes ignored `public/jobs.json`; only the built `dist` folder is deployed. Do not claim end-to-end cloud verification from mocked tests alone.
+
+## Delivery
+
+Changes go through a pull request into `stage` (published at `/JobSearch/stage/`), then through a pull request from `stage` into `main` (production). Both branches require the `Promotion path`, `Lint`, `Unit tests`, `Smoke tests`, and `Code review` checks; see `docs/ci-cd.md`. Supabase migrations and the Edge Function are deployed manually and are not covered by a green pipeline.
 
 ## Skill routing
 
