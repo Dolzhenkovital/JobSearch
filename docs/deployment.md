@@ -30,7 +30,7 @@
 3. У Authentication → URL Configuration задайте Site URL і дозволений Redirect URL: `https://dolzhenkovital.github.io/JobSearch/`.
 4. Залиште Email/Password authentication увімкненим. Налаштуйте підтвердження адреси й доставку листів відповідно до вашого провайдера. Стандартна пошта Supabase має обмеження; для особистого запуску можна створити підтверджений акаунт у Dashboard → Authentication → Users. Пароль має задавати власник акаунта приватно. Не публікуйте пароль у Git або чаті.
 5. У GitHub → Settings → Secrets and variables → Actions → Variables додайте `VITE_SUPABASE_URL` і `VITE_SUPABASE_PUBLISHABLE_KEY`. Це URL проєкту та **публічний publishable/anon key**. Не використовуйте `service_role`, secret key, management token або пароль бази.
-6. Запустіть workflow **Build and deploy JobSearch**. Після публікації вікно Налаштування → Синхронізація покаже форму входу.
+6. Запустіть workflow **Deploy** (він публікує прод і stage разом; див. [ci-cd.md](ci-cd.md)). Після публікації вікно Налаштування → Синхронізація покаже форму входу.
 7. Перевірте вхід на двох пристроях: збережіть тестову вакансію на першому, відкрийте другий і перевірте її появу. Перевірте, що інший акаунт не бачить цих даних. Код без успішного тесту двох сесій не означає перевірену живу синхронізацію.
 
 Якщо підключення ще не виконане, сайт прямо показує цей стан і працює локально. Не вводьте приватні дані до тестового або чужого Supabase-проєкту.
@@ -56,10 +56,15 @@ npm run dev
 Перевірки:
 
 ```text
+npm run lint
+npm run typecheck
 npm test
 python -m unittest discover -s scripts -p "test_*.py"
 npm run build
+npm run test:smoke
 ```
+
+Зміни потрапляють у прод через гілку `stage`; обов'язкові перевірки, код-рев'ю та тестове середовище описані в [ci-cd.md](ci-cd.md).
 
 ## Межі поточної версії
 

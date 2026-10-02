@@ -1,0 +1,177 @@
+name: Deploy
+
+# GitHub Pages serves one site per repository, so every deployment publishes both environments:
+# production (main) at /JobSearch/ and stage (stage) at /JobSearch/stage/.
+on:
+  push:
+    branches: [main, stage]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5,17 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build production and stage
+    runs-on: ubuntu-latest
+    outputs:
+      production_sha: ${{ steps.revisions.outputs.production_sha }}
+      stage_sha: ${{ steps.revisions.outputs.stage_sha }}
+    steps:
+      - name: Check out production (main)
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          path: production
+      - name: Check out stage
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: stage
+          path: stage
+      - id: revisions
+        run: |
+          echo "production_sha=$(git -C production rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "stage_sha=$(git -C stage rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            production/package-lock.json
+            stage/package-lock.json
+
+      - name: Fetch public Job Bank discovery metadata (production)
+        working-directory: production
+        run: python scripts/collect_jobbank.py
+      - name: Build production
+        working-directory: production
+        run: |
+          npm ci
+          npm run build
+        env:
+          JOBSEARCH_BASE: /JobSearch/
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Fetch public Job Bank discovery metadata (stage)
+        working-directory: stage
+        run: python scripts/collect_jobbank.py
+      - name: Build stage
+        working-directory: stage
+        run: |
+          npm ci
+          npm run build
+        env:
+          JOBSEARCH_BASE: /JobSearch/stage/
+          VITE_APP_ENV: stage
+          # Stage stays local-only until a separate Supabase project is configured for it.
+          VITE_SUPABASE_URL: ${{ vars.STAGE_VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGE_VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Assemble the site
+        env:
+          PRODUCTION_SHA: ${{ steps.revisions.outputs.production_sha }}
+          STAGE_SHA: ${{ steps.revisions.outputs.stage_sha }}
+        run: |
+          mkdir -p site/stage
+          cp -R production/dist/. site/
+          cp -R stage/dist/. site/stage/
+          # Deployment markers let the post-deploy check wait for this exact build.
+          printf '{"environment":"production","commit":"%s","run":"%s"}\n' "$PRODUCTION_SHA" "$GITHUB_RUN_ID" > site/version.json
+          printf '{"environment":"stage","commit":"%s","run":"%s"}\n' "$STAGE_SHA" "$GITHUB_RUN_ID" > site/stage/version.json
+      - uses: actions/configure-pages@v6.0.0
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: site
+          retention-days: 1
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v5.0.1
+        id: deployment
+
+  verify:
+    name: Post-deploy smoke (${{ matrix.environment }})
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: production
+            ref: main
+            path: ""
+          - environment: stage
+            ref: stage
+            path: stage/
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+      - name: Wait for the published build
+        env:
+          SITE_URL: ${{ needs.deploy.outputs.page_url }}${{ matrix.path }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS "${SITE_URL}version.json?run=${RUN_ID}" | grep -q "\"run\":\"${RUN_ID}\""; then
+              echo "Published build is live at ${SITE_URL}"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::${SITE_URL} did not serve this deployment within five minutes."
+          exit 1
+      - name: Check the page and the public feed
+        env:
+          SITE_URL: ${{ needs.deploy.outputs.page_url }}${{ matrix.path }}
+        run: |
+          curl -fsS "$SITE_URL" | grep -q '<div id="root">'
+          curl -fsS "${SITE_URL}jobs.json" | python -c "import json,sys; feed=json.load(sys.stdin); assert feed['schemaVersion']==1 and isinstance(feed['jobs'], list); print('feed status:', feed['status'], 'jobs:', len(feed['jobs']))"
+      - name: Detect browser smoke tests on this branch
+        id: smoke
+        run: |
+          if [ -d e2e ] && grep -q '"test:smoke"' package.json; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "This branch has no browser smoke tests yet; only the HTTP checks ran."
+          fi
+      - uses: actions/setup-node@v7.0.0
+        if: steps.smoke.outputs.available == 'true'
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Browser smoke tests against the published site
+        if: steps.smoke.outputs.available == 'true'
+        env:
+          SMOKE_BASE_URL: ${{ needs.deploy.outputs.page_url }}${{ matrix.path }}
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:smoke
+      - uses: actions/upload-artifact@v7.0.1
+        if: failure() && steps.smoke.outputs.available == 'true'
+        with:
+          name: post-deploy-report-${{ matrix.environment }}
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

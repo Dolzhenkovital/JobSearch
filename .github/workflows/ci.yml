@@ -1,0 +1,108 @@
+name: CI
+
+# Required checks for everything merged into stage and then promoted to main.
+on:
+  pull_request:
+    branches: [stage, main]
+  push:
+    branches: [stage, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  promotion:
+    name: Promotion path
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only stage may be merged into main
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            if [ "$HEAD_REF" != "stage" ] || [ "$HEAD_REPO" != "$REPO" ]; then
+              echo "::error::Changes reach main only through a pull request from the stage branch. Merge into stage first."
+              exit 1
+            fi
+          fi
+          echo "Promotion path is valid."
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Lint the collector
+        run: |
+          python -m pip install --quiet pyflakes==4.0.0
+          python -m pyflakes scripts
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: python -m unittest discover -s scripts -p 'test_*.py'
+
+  smoke:
+    name: Smoke tests
+    runs-on: ubuntu-latest
+    env:
+      # Build with the public configuration of the environment this change is heading to.
+      TARGET: ${{ (github.base_ref || github.ref_name) == 'main' && 'production' || 'stage' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Build the production target
+        if: env.TARGET == 'production'
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      - name: Build the stage target
+        if: env.TARGET == 'stage'
+        run: npm run build
+        env:
+          JOBSEARCH_BASE: /JobSearch/stage/
+          VITE_APP_ENV: stage
+          VITE_SUPABASE_URL: ${{ vars.STAGE_VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGE_VITE_SUPABASE_PUBLISHABLE_KEY }}
+      - run: npx playwright install --with-deps chromium
+      - name: Smoke-test the built site
+        run: npm run test:smoke
+        env:
+          JOBSEARCH_BASE: ${{ env.TARGET == 'stage' && '/JobSearch/stage/' || '/JobSearch/' }}
+      - uses: actions/upload-artifact@v7.0.1
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

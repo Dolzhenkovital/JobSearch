@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "fetchedAt": "2026-10-01T12:00:00+00:00",
+  "lastAttemptAt": "2026-10-01T12:00:00+00:00",
+  "status": "success",
+  "message": "",
+  "jobs": [
+    {
+      "id": "jobbank:900001",
+      "title": "Synthetic office coordinator",
+      "employer": "Example Co",
+      "location": "Laval (QC)",
+      "salary": "$25.00 hourly",
+      "url": "https://www.jobbank.gc.ca/jobsearch/jobposting/900001",
+      "source": "Job Bank",
+      "description": "Example Co\nLaval (QC)\n$25.00 hourly",
+      "completeness": "snippet",
+      "publishedAt": null,
+      "firstSeenAt": "2026-10-01T12:00:00+00:00",
+      "checkedAt": "2026-10-01T12:00:00+00:00",
+      "availability": "unknown"
+    },
+    {
+      "id": "jobbank:900002",
+      "title": "Synthetic accounting clerk",
+      "employer": "Sample Ltd",
+      "location": "Montréal (QC)",
+      "salary": "$28.50 hourly",
+      "url": "https://www.jobbank.gc.ca/jobsearch/jobposting/900002",
+      "source": "Job Bank",
+      "description": "Sample Ltd\nMontréal (QC)\n$28.50 hourly",
+      "completeness": "snippet",
+      "publishedAt": null,
+      "firstSeenAt": "2026-10-01T12:00:00+00:00",
+      "checkedAt": "2026-10-01T12:00:00+00:00",
+      "availability": "unknown"
+    },
+    {
+      "id": "jobbank:900003",
+      "title": "Synthetic warehouse associate",
+      "employer": "Demo Inc",
+      "location": "Québec (QC)",
+      "salary": "",
+      "url": "https://www.jobbank.gc.ca/jobsearch/jobposting/900003",
+      "source": "Job Bank",
+      "description": "Demo Inc\nQuébec (QC)",
+      "completeness": "snippet",
+      "publishedAt": null,
+      "firstSeenAt": "2026-10-01T12:00:00+00:00",
+      "checkedAt": "2026-10-01T12:00:00+00:00",
+      "availability": "unknown"
+    }
+  ]
+}

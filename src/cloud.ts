@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { parseBackup } from "./domain";
+import { t } from "./i18n";
 import type { Store } from "./types";
 import { publicCloudConfig } from "./publicCloudConfig";
 
@@ -30,7 +31,7 @@ export function syncDecision(
   return baseRevision === remoteRevision ? "push" : "conflict";
 }
 export async function fetchRemote(userId: string): Promise<Remote | null> {
-  if (!cloud) throw new Error("Хмарне сховище ще не підключене.");
+  if (!cloud) throw new Error(t("error.cloudNotConnected"));
   const { data, error } = await cloud
     .from("workspaces")
     .select("payload, revision")
@@ -48,13 +49,13 @@ export async function pushRemote(
   store: Store,
   revision: number,
 ): Promise<number> {
-  if (!cloud) throw new Error("Хмарне сховище ще не підключене.");
+  if (!cloud) throw new Error(t("error.cloudNotConnected"));
   const { data, error } = await cloud.rpc("save_workspace", {
     workspace_payload: store,
     expected_revision: revision,
   });
   if (error) throw error;
   if (typeof data !== "number")
-    throw new Error("Неочікувана відповідь сховища.");
+    throw new Error(t("error.unexpectedStorage"));
   return data;
 }

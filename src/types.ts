@@ -38,7 +38,7 @@ export type Settings = {
   city: string;
   roles: string;
   minHourly: string;
-  documentLanguage: "fr" | "en" | "uk";
+  documentLanguage: "fr" | "en" | "de" | "uk";
   applyPreferences: boolean;
 };
 export type Application = {

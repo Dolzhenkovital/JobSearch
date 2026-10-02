@@ -105,7 +105,7 @@ def main():
         result = {
             "schemaVersion": 1, "fetchedAt": previous.get("fetchedAt") if has_previous else None,
             "lastAttemptAt": now, "status": "stale" if has_previous else "error",
-            "message": "Оновлення Job Bank тимчасово недоступне. Збережені вакансії залишаються у вашому просторі.",
+            "message": "Job Bank update temporarily unavailable; serving the last good snapshot where available.",
             "jobs": previous.get("jobs", []) if has_previous else [],
         }
         print(f"Job Bank: {type(error).__name__}; keeping the last good snapshot where available.", file=sys.stderr)

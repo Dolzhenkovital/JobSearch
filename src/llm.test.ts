@@ -9,6 +9,14 @@ export const input:LlmInput={profileVersion:2,evidence:[{id:'cv:1',text:'Prepare
 const config:LlmConfig={baseUrl:'https://api.example.com/v1',model:'synthetic-model',apiFormat:'responses',reasoningEffort:'default',monthlyTokenBudget:0};
 const requirement={requirement:'Excel',jobQuote:'Excel reports required.',category:'skills',importance:'required',status:'supported',evidenceIds:['cv:1'],explanation:'Reports in the source CV.'};
 describe('LLM contracts and output boundaries',()=>{
+  it('accepts German documents and an interface language, defaulting older clients to Ukrainian',()=>{
+    expect(parseInput(input,'match').interfaceLanguage).toBe('uk');
+    const german=parseInput({...input,documentLanguage:'de',interfaceLanguage:'de'},'tailor');
+    expect(german.documentLanguage).toBe('de');
+    expect(german.interfaceLanguage).toBe('de');
+    expect(()=>parseInput({...input,documentLanguage:'es'},'match')).toThrow(AppError);
+    expect(()=>parseInput({...input,interfaceLanguage:'es'},'match')).toThrow(AppError);
+  });
   it('builds both API formats with model-dependent effort omitted by default',()=>{
     const responses=providerRequest(config,'match',input);
     expect(responses.url).toBe('https://api.example.com/v1/responses');
