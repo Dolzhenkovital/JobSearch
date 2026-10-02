@@ -10,6 +10,7 @@ import { useWorkspace } from "./useWorkspace";
 const backend = vi.hoisted(() => ({
   fetch: vi.fn(),
   push: vi.fn(),
+  signOut: vi.fn(),
   listener: null as null | ((event: string, session: unknown) => void),
 }));
 vi.mock("./cloud", async (original) => {
@@ -27,6 +28,7 @@ vi.mock("./cloud", async (original) => {
           backend.listener = listener;
           return { data: { subscription: { unsubscribe() {} } } };
         },
+        signOut: backend.signOut,
       },
     },
   };
@@ -45,11 +47,35 @@ async function mount() {
   });
 }
 const accountKey = `${STORAGE_KEY}:test-owner`;
+const guestKey = `${STORAGE_KEY}:guest`;
+const named = (name: string) => {
+  const store = initialStore();
+  store.profile.name = name;
+  return store;
+};
+const stored = (key: string) => JSON.parse(localStorage.getItem(key)!);
+const keysWith = (prefix: string) =>
+  Object.keys(localStorage).filter((key) => key.startsWith(prefix));
+/** Deliver an auth event the way the Supabase client does and let the hook settle. */
+async function authenticate(userId: string | null) {
+  await act(async () => {
+    backend.listener?.(
+      userId ? "SIGNED_IN" : "SIGNED_OUT",
+      userId ? { user: { id: userId } } : null,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
 beforeEach(() => {
   vi.useFakeTimers();
   localStorage.clear();
   backend.fetch.mockReset();
   backend.push.mockReset();
+  backend.signOut.mockReset();
+  backend.signOut.mockImplementation(async () => {
+    backend.listener?.("SIGNED_OUT", null);
+    return { error: null };
+  });
   // React's act warning flag applies only to this synthetic test environment.
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 });
@@ -256,5 +282,243 @@ describe("workspace limits", () => {
       await workspace.sync();
     });
     expect(workspace.error).toBe(t("workspace.syncUnavailable"));
+  });
+});
+
+describe("guest data adoption", () => {
+  const seedGuest = () =>
+    localStorage.setItem(
+      guestKey,
+      JSON.stringify({ store: named("Guest CV"), revision: 0, dirty: true }),
+    );
+
+  it("moves guest data into a new account and never into a second one", async () => {
+    seedGuest();
+    backend.fetch.mockResolvedValue(null);
+    backend.push.mockResolvedValue(1);
+    await mount();
+    await authenticate("test-owner");
+    expect(backend.push).toHaveBeenCalledTimes(1);
+    expect(backend.push.mock.calls[0][0].profile.name).toBe("Guest CV");
+    expect(stored(accountKey)).toMatchObject({ revision: 1, dirty: false });
+    expect(localStorage.getItem(guestKey)).toBeNull();
+
+    await authenticate(null);
+    expect(workspace.user).toBeNull();
+    expect(workspace.store.profile.name).toBe("");
+
+    await authenticate("second-owner");
+    expect(workspace.user?.id).toBe("second-owner");
+    expect(workspace.store.profile.name).toBe("");
+    expect(backend.push).toHaveBeenCalledTimes(2);
+    expect(backend.push.mock.calls[1][0].profile.name).toBe("");
+    expect(stored(`${STORAGE_KEY}:second-owner`).store.profile.name).toBe("");
+  });
+
+  it("keeps adopted data with its account when the first upload fails", async () => {
+    seedGuest();
+    backend.fetch.mockResolvedValue(null);
+    backend.push.mockRejectedValue(new Error("synthetic network failure"));
+    await mount();
+    await authenticate("test-owner");
+    expect(workspace.status).toBe("offline");
+    expect(workspace.store.profile.name).toBe("Guest CV");
+    expect(localStorage.getItem(guestKey)).toBeNull();
+
+    await authenticate(null);
+    expect(workspace.store.profile.name).toBe("");
+    backend.push.mockReset();
+    backend.push.mockResolvedValue(1);
+    await authenticate("second-owner");
+    expect(workspace.store.profile.name).toBe("");
+    expect(backend.push).toHaveBeenCalledTimes(1);
+    expect(backend.push.mock.calls[0][0].profile.name).toBe("");
+    // The first account still holds its unsynced copy for the next sign-in.
+    expect(stored(accountKey)).toMatchObject({ dirty: true });
+    expect(stored(accountKey).store.profile.name).toBe("Guest CV");
+  });
+
+  it("claims guest data edited offline before the cloud could be read", async () => {
+    seedGuest();
+    backend.fetch.mockRejectedValue(new Error("synthetic network failure"));
+    await mount();
+    await authenticate("test-owner");
+    expect(workspace.status).toBe("offline");
+    // Nothing is written for the account yet, so the guest copy must stay.
+    expect(localStorage.getItem(accountKey)).toBeNull();
+    expect(stored(guestKey).store.profile.name).toBe("Guest CV");
+    await act(async () => {
+      workspace.update((s) => ({
+        ...s,
+        profile: { ...s.profile, headline: "Offline edit" },
+      }));
+    });
+    expect(stored(accountKey).store.profile).toMatchObject({
+      name: "Guest CV",
+      headline: "Offline edit",
+    });
+    expect(localStorage.getItem(guestKey)).toBeNull();
+  });
+
+  it("leaves guest data on the device when an existing cloud copy wins", async () => {
+    seedGuest();
+    backend.fetch.mockResolvedValue({ store: named("Cloud CV"), revision: 4 });
+    await mount();
+    await authenticate("test-owner");
+    expect(workspace.store.profile.name).toBe("Cloud CV");
+    expect(backend.push).not.toHaveBeenCalled();
+    expect(stored(guestKey).store.profile.name).toBe("Guest CV");
+    await authenticate(null);
+    expect(workspace.store.profile.name).toBe("Guest CV");
+  });
+});
+
+describe("local copy on sign-out", () => {
+  const otherKey = `${STORAGE_KEY}:other-owner`;
+  async function signOut(removeLocal: boolean, discardUnsynced?: boolean) {
+    let result!: Awaited<ReturnType<typeof workspace.signOut>>;
+    await act(async () => {
+      result = await workspace.signOut(removeLocal, discardUnsynced);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    return result;
+  }
+  async function mountSynced() {
+    backend.fetch.mockResolvedValue({ store: named("Account CV"), revision: 2 });
+    await mount();
+    await authenticate("test-owner");
+    expect(workspace.status).toBe("synced");
+  }
+  async function edit() {
+    // The upload never completes, so the edit stays unsynced.
+    backend.push.mockImplementation(() => new Promise<number>(() => {}));
+    await act(async () => {
+      workspace.update((s) => ({
+        ...s,
+        profile: { ...s.profile, name: "Unsynced edit" },
+      }));
+    });
+  }
+
+  it("keeps the local copy unless its removal is requested", async () => {
+    await mountSynced();
+    expect(workspace.unsynced).toBe(false);
+    expect(await signOut(false)).toBe("signedOut");
+    expect(workspace.user).toBeNull();
+    expect(stored(accountKey).store.profile.name).toBe("Account CV");
+  });
+
+  it("removes a synced copy with its backups and nothing else", async () => {
+    const other = JSON.stringify({
+      store: named("Other account"),
+      revision: 1,
+      dirty: false,
+    });
+    localStorage.setItem(otherKey, other);
+    localStorage.setItem(`${accountKey}:conflict-backup`, "synthetic backup");
+    localStorage.setItem(`${accountKey}:recovery:1a2b`, "synthetic recovery");
+    await mountSynced();
+    expect(await signOut(true)).toBe("removed");
+    expect(workspace.user).toBeNull();
+    expect(workspace.store.profile.name).toBe("");
+    expect(keysWith(accountKey)).toEqual([]);
+    expect(localStorage.getItem(otherKey)).toBe(other);
+  });
+
+  it("deletes unsynced changes only after an explicit confirmation", async () => {
+    await mountSynced();
+    await edit();
+    expect(workspace.unsynced).toBe(true);
+    expect(await signOut(true)).toBe("unsynced");
+    expect(backend.signOut).not.toHaveBeenCalled();
+    expect(workspace.user?.id).toBe("test-owner");
+    expect(stored(accountKey).store.profile.name).toBe("Unsynced edit");
+
+    expect(await signOut(true, true)).toBe("removed");
+    expect(workspace.user).toBeNull();
+    expect(keysWith(accountKey)).toEqual([]);
+  });
+
+  it("treats an unreadable stored copy as unsynced", async () => {
+    await mountSynced();
+    localStorage.setItem(accountKey, "{damaged");
+    expect(await signOut(true)).toBe("unsynced");
+    expect(backend.signOut).not.toHaveBeenCalled();
+    expect(localStorage.getItem(accountKey)).toBe("{damaged");
+  });
+
+  it("keeps a copy that became unsynced while signing out", async () => {
+    await mountSynced();
+    let finish!: (value: { error: null }) => void;
+    backend.signOut.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    let leaving!: ReturnType<typeof workspace.signOut>;
+    await act(async () => {
+      leaving = workspace.signOut(true);
+    });
+    await edit();
+    let result!: Awaited<typeof leaving>;
+    await act(async () => {
+      finish({ error: null });
+      result = await leaving;
+    });
+    expect(result).toBe("kept");
+    expect(workspace.user).toBeNull();
+    expect(workspace.store.profile.name).toBe("");
+    expect(stored(accountKey)).toMatchObject({ dirty: true });
+    expect(stored(accountKey).store.profile.name).toBe("Unsynced edit");
+  });
+
+  it("changes nothing when the sign-out request fails", async () => {
+    await mountSynced();
+    backend.signOut.mockResolvedValue({ error: new Error("synthetic failure") });
+    expect(await signOut(true)).toBe("failed");
+    expect(workspace.user?.id).toBe("test-owner");
+    expect(stored(accountKey).store.profile.name).toBe("Account CV");
+  });
+});
+
+describe("damaged cache recovery copies", () => {
+  const recoveryPrefix = `${guestKey}:recovery:`;
+  const copies = () =>
+    keysWith(recoveryPrefix)
+      .map((key) => localStorage.getItem(key))
+      .sort();
+  async function remount() {
+    await act(async () => {
+      root.unmount();
+    });
+    await mount();
+    await authenticate("test-owner");
+  }
+
+  it("keeps one copy per distinct damaged content across repeated reads", async () => {
+    backend.fetch.mockResolvedValue({ store: initialStore(), revision: 1 });
+    localStorage.setItem(guestKey, "{damaged");
+    await mount();
+    await authenticate("test-owner");
+    await remount();
+    expect(copies()).toEqual(["{damaged"]);
+    // The damaged original itself is not replaced.
+    expect(localStorage.getItem(guestKey)).toBe("{damaged");
+
+    localStorage.setItem(guestKey, "{damaged differently");
+    await remount();
+    expect(copies()).toEqual(["{damaged", "{damaged differently"]);
+  });
+
+  it("collapses the time-keyed duplicates written by earlier versions", async () => {
+    backend.fetch.mockResolvedValue({ store: initialStore(), revision: 1 });
+    localStorage.setItem(guestKey, "{damaged");
+    for (const time of [1759400000001, 1759400000002, 1759400000003])
+      localStorage.setItem(`${recoveryPrefix}${time}`, "{damaged");
+    localStorage.setItem(`${recoveryPrefix}1759300000000`, "{older damage");
+    await mount();
+    await authenticate("test-owner");
+    expect(copies()).toEqual(["{damaged", "{older damage"]);
   });
 });

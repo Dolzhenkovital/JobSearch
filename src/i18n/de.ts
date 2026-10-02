@@ -306,7 +306,18 @@ export const de: Record<MessageKey, string> = {
   "auth.failed": "Anmeldung fehlgeschlagen.",
   "auth.signOutFailed": "Abmeldung fehlgeschlagen. Versuchen Sie es erneut.",
   "auth.signedOut": "Sie haben sich vom Konto abgemeldet",
+  "auth.signedOutRemoved":
+    "Sie haben sich vom Konto abgemeldet. Die lokale Kopie wurde gelöscht.",
+  "auth.signedOutKept":
+    "Sie haben sich vom Konto abgemeldet, aber die lokale Kopie wurde nicht gelöscht. Melden Sie sich erneut an, um die Änderungen zu synchronisieren oder das Löschen zu wiederholen.",
   "auth.signOut": "Abmelden",
+  "signOut.title": "Auf diesem Gerät vom Konto abmelden?",
+  "signOut.remove": "Lokale Kopie der Daten aus diesem Browser löschen",
+  "signOut.removeHint":
+    "Die Cloud-Kopie bleibt im Konto. Löschen Sie die lokale Kopie auf einem gemeinsam genutzten oder fremden Gerät.",
+  "signOut.unsynced":
+    "Einige Änderungen sind noch nicht synchronisiert. Wenn Sie die lokale Kopie löschen, gehen sie verloren.",
+  "signOut.discard": "Ja, nicht synchronisierte Änderungen löschen",
   "auth.password": "Passwort",
   "auth.passwordNew": "Mindestens 10 Zeichen",
   "auth.passwordCurrent": "Ihr Passwort",
@@ -439,6 +450,9 @@ export const de: Record<MessageKey, string> = {
   "ai.stale.draft":
     "Die Eingabedaten haben sich geändert. Dieser Entwurf verwendet das gespeicherte Profil in Version {version}; prüfen Sie seine Aktualität.",
   "ai.needsCheck": "Prüfung erforderlich",
+  "ai.numbers.cv": "Lebenslauf: {numbers} nicht im Profil gefunden. Zeile: „{line}“",
+  "ai.numbers.letter": "Anschreiben: {numbers} nicht im Profil gefunden. Zeile: „{line}“",
+  "ai.numbers.omitted": "Weitere Zeilen mit Zahlen, die nicht im Profil stehen: {count}.",
   "ai.viewTexts": "Texte und Quellen ansehen",
   "ai.saveAsPacket": "Als neue Mappe speichern",
   "ai.history": "Anfrageverlauf ({count})",

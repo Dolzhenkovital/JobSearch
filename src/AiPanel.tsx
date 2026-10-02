@@ -37,6 +37,8 @@ export function AiPanel({job,profile,settings,userId,service,onPacket,onUsageCha
   const draft=runs.find(r=>r.operation==='tailor'&&r.status==='succeeded');
   const matchData=match?.result as MatchResult|undefined;
   const draftData=draft?.result as TailorResult|undefined;
+  // Lines whose numbers occur in no profile line; runs saved before rules v3 have none.
+  const numberLines=draftData?.unsupportedNumbers?.lines??[],omittedNumbers=draftData?.unsupportedNumbers?.omitted??0;
   const stale=(saved:LlmRun)=>comparable(saved.input)!==comparable(input);
   const count=(value:number)=>value.toLocaleString(locale());
   return <section className="detail-section ai-panel">
@@ -63,7 +65,10 @@ export function AiPanel({job,profile,settings,userId,service,onPacket,onUsageCha
       <h4>{t('ai.draft.title')}</h4>
       {stale(draft)&&<div className="notice">{t('ai.stale.draft',{version:draft.input.profileVersion})}</div>}
       <ul>{draftData.changeSummary.map((x,i)=><li key={i}>{x}</li>)}</ul>
-      {!!draftData.questions.length&&<div className="notice"><strong>{t('ai.needsCheck')}</strong><ul>{draftData.questions.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
+      {(!!numberLines.length||!!draftData.questions.length)&&<div className="notice"><strong>{t('ai.needsCheck')}</strong><ul>
+        {numberLines.map((x,i)=><li key={`number:${i}`}>{t(x.document==='cv'?'ai.numbers.cv':'ai.numbers.letter',{numbers:x.numbers.map(n=>n.replace(/\s/g,'\u00a0')).join(', '),line:x.line})}</li>)}
+        {!!omittedNumbers&&<li>{t('ai.numbers.omitted',{count:omittedNumbers})}</li>}
+        {draftData.questions.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
       <details><summary>{t('ai.viewTexts')}</summary><h4>CV</h4><pre>{draftData.cv}</pre><h4>{t('docs.tab.letter')}</h4><pre>{draftData.letter}</pre>
         {draftData.claims.map((claim,i)=><div key={i}><strong>{claim.text}</strong><ul>{claim.evidenceIds.map(id=><li key={id}>{draft.input.evidence.find(e=>e.id===id)?.text}</li>)}</ul></div>)}</details>
       <button className="button primary" onClick={()=>onPacket(draft)}><FileText size={16}/>{t('ai.saveAsPacket')}</button>
