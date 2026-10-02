@@ -4,9 +4,10 @@ import { uk } from './i18n/uk';
 import { evidenceFromProfile, type LlmInput, type MatchResult, type TailorResult } from '../supabase/functions/_shared/llm';
 import type { Job, Profile, Settings } from './types';
 export type { PublicLlmConfig, LlmConfig, LlmInput, MatchResult, TailorResult } from '../supabase/functions/_shared/llm';
-export { EFFORTS } from '../supabase/functions/_shared/llm';
+export { EFFORTS, RULES_VERSION } from '../supabase/functions/_shared/llm';
 export type {SmtpConfig,SmtpState} from '../supabase/functions/_shared/smtp';
-export type ServiceStatus={isAdmin:boolean;configured:boolean;monthlyTokenBudget:number;usage:{used_tokens:number;reserved_tokens:number;month:string}};
+// rulesVersion is the deployed function's RULES_VERSION; functions deployed before it was reported omit it.
+export type ServiceStatus={isAdmin:boolean;configured:boolean;monthlyTokenBudget:number;usage:{used_tokens:number;reserved_tokens:number;month:string};rulesVersion?:string};
 export type Account={id:string;email:string;createdAt:string;lastSignInAt:string|null;confirmed:boolean;isAdmin:boolean};
 export type LlmRun={id:string;user_id:string;operation:'match'|'tailor';status:'pending'|'succeeded'|'failed'|'uncertain';
   input:LlmInput;result:MatchResult|TailorResult|null;model:string;rules_version:string;created_at:string;

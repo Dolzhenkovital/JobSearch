@@ -2525,6 +2525,9 @@ select {
 .button.danger { background: #a2352f; color: white; border-color: #a2352f; }
 .delete-confirmation { border: 1px solid #d9a9a6; background: #fff7f6; padding: 20px; border-radius: 12px; margin-top: 20px; }
 .notice.error { color: #8c302b; background: #fff1ef; }
+/* Each rules version gets its own row, so phones do not split the identifiers being compared. */
+.rules-versions { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0; }
+.rules-versions dd { margin: 0; font-weight: 700; }
 .ai-result { padding: 18px; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; }
 .ai-result h4 { margin: 0 0 12px; }
 .ai-result pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; }

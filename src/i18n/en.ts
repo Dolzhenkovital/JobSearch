@@ -501,6 +501,16 @@ export const en: Record<MessageKey, string> = {
   "admin.llm.note":
     "Before a call, a conservative input estimate and the maximum response are reserved. After completion the provider’s usage is counted; if the outcome is unknown, the reserve is charged. The provider must support JSON Schema for the chosen model and format.",
   "admin.llm.save": "Save LLM",
+  "admin.llm.rules.missing":
+    "The deployed jobsearch-api function does not report its LLM rules version: it was deployed before this check existed.",
+  "admin.llm.rules.mismatch":
+    "The deployed jobsearch-api function uses a different LLM rules version than this interface.",
+  "admin.llm.rules.deployed": "Function",
+  "admin.llm.rules.interface": "Interface",
+  "admin.llm.rules.action":
+    "Redeploy jobsearch-api from the commit this site was published from (docs/admin-llm.md, deployment step 3). If the function has already been updated, reload the page.",
+  "admin.llm.rules.failed":
+    "Could not check the jobsearch-api rules version: {error}",
 
   "smtp.title": "Mail for sign-up and recovery",
   "smtp.note":

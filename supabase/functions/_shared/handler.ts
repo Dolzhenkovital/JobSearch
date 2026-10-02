@@ -102,8 +102,10 @@ export function createHandler(deps:Dependencies) {
         const month=new Date().toISOString().slice(0,7)+'-01';
         const {data:usage,error}=await admin.from('llm_usage').select('used_tokens,reserved_tokens,month').eq('user_id',user.id).eq('month',month).maybeSingle();
         if(error)throw new AppError('storage_error',503);
+        // The function is deployed manually, unlike the client: the rules version lets the admin panel detect drift.
         return reply({isAdmin:await isAdmin(user.id),configured:!!settings.apiKey&&!!settings.config.model,
-          monthlyTokenBudget:settings.config.monthlyTokenBudget,usage:usage||{used_tokens:0,reserved_tokens:0,month}});
+          monthlyTokenBudget:settings.config.monthlyTokenBudget,usage:usage||{used_tokens:0,reserved_tokens:0,month},
+          rulesVersion:RULES_VERSION});
       }
       if(action==='get_config') {
         const settings=await rpc('llm_server_config');

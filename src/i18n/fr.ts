@@ -509,6 +509,16 @@ export const fr: Record<MessageKey, string> = {
   "admin.llm.note":
     "Avant l’appel, une estimation prudente de l’entrée et la réponse maximale sont réservées. Une fois l’appel terminé, l’usage déclaré par le fournisseur est compté ; si le résultat est inconnu, la réserve est facturée. Le fournisseur doit prendre en charge JSON Schema pour le modèle et le format choisis.",
   "admin.llm.save": "Enregistrer le LLM",
+  "admin.llm.rules.missing":
+    "La fonction jobsearch-api déployée n’indique pas sa version des règles LLM : elle a été déployée avant l’ajout de cette vérification.",
+  "admin.llm.rules.mismatch":
+    "La fonction jobsearch-api déployée utilise une autre version des règles LLM que cette interface.",
+  "admin.llm.rules.deployed": "Fonction",
+  "admin.llm.rules.interface": "Interface",
+  "admin.llm.rules.action":
+    "Redéployez jobsearch-api à partir du commit qui a servi à publier ce site (docs/admin-llm.md, étape 3 du déploiement). Si la fonction a déjà été mise à jour, rechargez la page.",
+  "admin.llm.rules.failed":
+    "Impossible de vérifier la version des règles de jobsearch-api : {error}",
 
   "smtp.title": "Messagerie pour l’inscription et la récupération",
   "smtp.note":
