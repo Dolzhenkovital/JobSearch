@@ -1140,6 +1140,17 @@ select {
   background: #122c2769;
   backdrop-filter: blur(3px);
 }
+.modal-alert {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  padding: 13px 28px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #8c302b;
+  background: #fff1ef;
+  border-top: 1px solid #f0d3cf;
+}
 .modal-header {
   display: flex;
   align-items: flex-start;
