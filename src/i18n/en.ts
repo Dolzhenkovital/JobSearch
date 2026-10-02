@@ -299,7 +299,18 @@ export const en: Record<MessageKey, string> = {
   "auth.failed": "Could not sign in.",
   "auth.signOutFailed": "Could not sign out. Try again.",
   "auth.signedOut": "You signed out of the account",
+  "auth.signedOutRemoved":
+    "You signed out of the account. The local copy was deleted.",
+  "auth.signedOutKept":
+    "You signed out of the account, but the local copy was not deleted. Sign in again to sync the changes or to retry the deletion.",
   "auth.signOut": "Sign out",
+  "signOut.title": "Sign out of the account on this device?",
+  "signOut.remove": "Delete the local copy of the data from this browser",
+  "signOut.removeHint":
+    "The cloud copy stays in the account. Delete the local copy on a shared device or one that is not yours.",
+  "signOut.unsynced":
+    "Some changes are not synced yet. Deleting the local copy will lose them.",
+  "signOut.discard": "Yes, delete the unsynced changes",
   "auth.password": "Password",
   "auth.passwordNew": "At least 10 characters",
   "auth.passwordCurrent": "Your password",

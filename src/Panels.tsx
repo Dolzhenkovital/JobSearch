@@ -78,6 +78,17 @@ export function SettingsPanel({
     [authMessage, setAuthMessage] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const [restore, setRestore] = useState<Store | null>(null);
+  // The open sign-out confirmation: whether to delete this browser's copy, and
+  // whether deleting changes the cloud has not received was explicitly confirmed.
+  const [signOutChoice, setLeaving] = useState<{
+    owner: string;
+    remove: boolean;
+    discard: boolean;
+    unsynced: boolean;
+  } | null>(null);
+  // One account's choices never confirm deleting another account's data.
+  const leaving = signOutChoice?.owner === accountId ? signOutChoice : null;
+  const unsynced = workspace.unsynced || !!leaving?.unsynced;
   const field = (key: keyof Settings, value: string | boolean) =>
     setDraft((previous) => ({
       owner: accountId,
@@ -108,6 +119,32 @@ export function SettingsPanel({
       else notify(t("auth.signedIn"));
     } catch (error) {
       setAuthMessage((error as Error).message || t("auth.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function signOut() {
+    if (!leaving) return;
+    setBusy(true);
+    try {
+      const result = await workspace.signOut(leaving.remove, leaving.discard);
+      if (result === "unsynced") {
+        // The stored copy changed after this form was rendered: ask before deleting it.
+        setLeaving({ ...leaving, discard: false, unsynced: true });
+        return;
+      }
+      if (result !== "failed") setLeaving(null);
+      notify(
+        t(
+          result === "failed"
+            ? "auth.signOutFailed"
+            : result === "removed"
+              ? "auth.signedOutRemoved"
+              : result === "kept"
+                ? "auth.signedOutKept"
+                : "auth.signedOut",
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -281,17 +318,84 @@ export function SettingsPanel({
                     <FolderSync size={17} />
                     {t("common.refresh")}
                   </button>
-                  <button
-                    className="button ghost"
-                    onClick={async () => {
-                      const { error } = await cloud!.auth.signOut();
-                      notify(t(error ? "auth.signOutFailed" : "auth.signedOut"));
-                    }}
-                  >
-                    <LogOut size={17} />
-                    {t("auth.signOut")}
-                  </button>
+                  {!leaving && (
+                    <button
+                      className="button ghost"
+                      onClick={() =>
+                        setLeaving({
+                          owner: workspace.user!.id,
+                          remove: false,
+                          discard: false,
+                          unsynced: false,
+                        })
+                      }
+                    >
+                      <LogOut size={17} />
+                      {t("auth.signOut")}
+                    </button>
+                  )}
                 </div>
+                {leaving && (
+                  <div className="notice sign-out-confirm">
+                    <strong>{t("signOut.title")}</strong>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={leaving.remove}
+                        onChange={(event) =>
+                          setLeaving({
+                            ...leaving,
+                            remove: event.target.checked,
+                            discard: false,
+                          })
+                        }
+                      />
+                      <span>{t("signOut.remove")}</span>
+                    </label>
+                    <p>{t("signOut.removeHint")}</p>
+                    {leaving.remove && unsynced && (
+                      <>
+                        <p role="alert">
+                          <strong>{t("signOut.unsynced")}</strong>
+                        </p>
+                        <label className="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={leaving.discard}
+                            onChange={(event) =>
+                              setLeaving({
+                                ...leaving,
+                                discard: event.target.checked,
+                              })
+                            }
+                          />
+                          <span>{t("signOut.discard")}</span>
+                        </label>
+                      </>
+                    )}
+                    <div className="button-row">
+                      <button
+                        className="button primary"
+                        disabled={
+                          busy || (leaving.remove && unsynced && !leaving.discard)
+                        }
+                        onClick={() => {
+                          void signOut();
+                        }}
+                      >
+                        <LogOut size={17} />
+                        {t("auth.signOut")}
+                      </button>
+                      <button
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => setLeaving(null)}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <form onSubmit={login}>
