@@ -439,6 +439,9 @@ export const en: Record<MessageKey, string> = {
   "ai.stale.draft":
     "The input data changed. This draft uses the saved profile version {version}; check that it is still current.",
   "ai.needsCheck": "Needs checking",
+  "ai.numbers.cv": "CV: {numbers} not found in your profile. Line: “{line}”",
+  "ai.numbers.letter": "Letter: {numbers} not found in your profile. Line: “{line}”",
+  "ai.numbers.omitted": "More lines with numbers not found in your profile: {count}.",
   "ai.viewTexts": "View texts and sources",
   "ai.saveAsPacket": "Save as a new packet",
   "ai.history": "Request history ({count})",

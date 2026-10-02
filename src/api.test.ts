@@ -93,8 +93,10 @@ describe('server authentication and provider boundary',()=>{
   });
   it('reports an oversized profile as too large before any reservation or provider call',async()=>{
     const evidence=Array.from({length:501},(_,i)=>({id:`cv:${i+1}`,text:'Line'}));
-    const response=await make()(request('match',{requestId:rid,input:{...input,evidence}}));
-    expect(response.status).toBe(400);expect(await response.json()).toEqual({error:'input_too_large'});
+    for(const action of ['match','tailor']){
+      const response=await make()(request(action,{requestId:rid,input:{...input,evidence}}));
+      expect(response.status).toBe(400);expect(await response.json()).toEqual({error:'input_too_large'});
+    }
     expect(provider).not.toHaveBeenCalled();
     expect(rpc.mock.calls.some(([name])=>name==='llm_reserve')).toBe(false);
   });
@@ -108,7 +110,8 @@ describe('server authentication and provider boundary',()=>{
     provider.mockResolvedValueOnce(output({cv:'Prepared Excel reports.\nGrew sales 40%.',letter:'I prepare Excel reports.',changeSummary:[],claims:[{text:'Prepared Excel reports.',evidenceIds:['cv:1']}],questions:[]}));
     const tailor=await (await make()(request('tailor',{requestId:rid,input:{...input,job,interfaceLanguage:'en'}}))).json();
     expect(tailor.run.status).toBe('succeeded');
-    expect(tailor.run.result.questions).toEqual(['Check the CV: your profile has no support for 40%. Line: "Grew sales 40%."']);
+    expect(tailor.run.result.unsupportedNumbers).toEqual({lines:[{document:'cv',line:'Grew sales 40%.',numbers:['40%']}],omitted:0});
+    expect(tailor.run.result.questions).toEqual([]);
     expect(rpc.mock.calls.filter(([name])=>name==='llm_complete').map(([,args])=>args.p_input_tokens)).toEqual([10,10]);
   });
 });
