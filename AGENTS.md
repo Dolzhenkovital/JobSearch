@@ -1,6 +1,6 @@
 # JobSearch
 
-Build a private Canadian job-search assistant: discover vacancies, evaluate fit, prepare a CV and motivation letter, and track applications. The app uses React/TypeScript/Vite on GitHub Pages, a public Job Bank metadata collector, and optional Supabase account storage. Distinguish implemented support from a configured and tested live integration.
+Build a private Canadian job-search assistant: discover vacancies, evaluate fit, prepare a CV and motivation letter, and track applications. The app uses React/TypeScript/Vite on GitHub Pages, a public Job Bank metadata collector, and Supabase account storage. Distinguish implemented support from a configured and tested live integration.
 
 ## Project decisions
 
