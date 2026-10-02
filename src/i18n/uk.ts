@@ -315,7 +315,7 @@ export const uk = {
     "Збережіть профіль, налаштування, вакансії та документи одним файлом. Копія містить особисті дані — тримайте її в безпечному місці.",
   "data.download.detail": "Усі дані поточного простору",
   "data.restore": "Відновити з файлу",
-  "data.restore.detail": "Резервна копія JobSearch, до 5 МБ",
+  "data.restore.detail": "Резервна копія JobSearch, файл до 10 МБ",
   "data.restoreConfirm.title": "Відновити цю копію?",
   "data.restoreConfirm.text":
     "Вакансій: {jobs}. Заявок: {applications}. Документів: {packets}. Поточні дані буде замінено, а після входу — синхронізовано.",
@@ -542,7 +542,7 @@ export const uk = {
   "error.jobState": "Некоректний стан вакансії.",
   "error.urlScheme": "Посилання повинно починатися з https:// або http://.",
   "error.feedRead": "Не вдалося прочитати оновлення вакансій.",
-  "error.fileTooLarge": "Файл завеликий. Максимум — 5 МБ.",
+  "error.fileTooLarge": "Файл завеликий. Максимум — 10 МБ.",
   "error.backupVersion": "Ця версія резервної копії не підтримується.",
   "error.profileVersion": "Некоректна версія профілю.",
   "error.salaryAmount": "Некоректна сума оплати.",

@@ -3,8 +3,16 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
-import { initialStore } from "./domain";
+import {
+  initialStore,
+  MAX_BACKUP_FILE_BYTES,
+  serializeBackup,
+  storedBytes,
+  WORKSPACE_LIMITS,
+} from "./domain";
+import { t } from "./i18n";
 import { SettingsPanel } from "./Panels";
+import type { Job } from "./types";
 import type { useWorkspace } from "./useWorkspace";
 
 vi.mock("./cloud", () => ({ cloud: null }));
@@ -124,5 +132,79 @@ describe("settings while cloud data changes", () => {
     workspace.store = initialStore();
     await render();
     expect(field<HTMLInputElement>("Місто або регіон").value).toBe("");
+  });
+});
+
+describe("restoring a backup", () => {
+  const job: Job = {
+    id: "synthetic:0",
+    title: "Office coordinator",
+    employer: "Example Co",
+    location: "",
+    salary: "",
+    url: "",
+    source: "Job Bank",
+    description: "",
+    completeness: "full",
+    publishedAt: null,
+    firstSeenAt: "2026-10-01T12:00:00Z",
+    checkedAt: "2026-10-01T12:00:00Z",
+    availability: "unknown",
+  };
+  async function choose(file: File) {
+    await act(async () => {
+      root.render(
+        <SettingsPanel
+          workspace={workspace}
+          onClose={onClose}
+          notify={notify}
+          initialTab="data"
+        />,
+      );
+    });
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [file] });
+    const read = vi.spyOn(file, "text");
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await read.mock.results[0]?.value;
+    });
+    return read;
+  }
+
+  it("offers to restore the downloaded backup of a workspace at the size limit", async () => {
+    const backup = initialStore();
+    backup.jobs = Array.from({ length: 30 }, (_, i) => ({
+      ...job,
+      id: `synthetic:${i}`,
+    }));
+    let missing = WORKSPACE_LIMITS.bytes - storedBytes(backup);
+    for (const item of backup.jobs) {
+      item.description = "x".repeat(Math.min(missing, 200000));
+      missing -= item.description.length;
+    }
+    expect(storedBytes(backup)).toBe(WORKSPACE_LIMITS.bytes);
+    const file = new File([serializeBackup(backup)], "JobSearch-backup.json", {
+      type: "application/json",
+    });
+    // The indented file is larger than the workspace it holds.
+    expect(file.size).toBeGreaterThan(WORKSPACE_LIMITS.bytes);
+    await choose(file);
+    expect(notify).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(t("data.restoreConfirm.title"));
+    expect(container.textContent).toContain(
+      t("data.restoreConfirm.text", { jobs: 30, applications: 0, packets: 0 }),
+    );
+  });
+
+  it("turns away a file above the backup file bound without reading it", async () => {
+    const file = new File(
+      [new Uint8Array(MAX_BACKUP_FILE_BYTES + 1)],
+      "JobSearch-backup.json",
+    );
+    const read = await choose(file);
+    expect(read).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(t("error.fileTooLarge"));
+    expect(container.textContent).not.toContain(t("data.restoreConfirm.title"));
   });
 });

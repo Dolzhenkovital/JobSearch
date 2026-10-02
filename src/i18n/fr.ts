@@ -322,7 +322,7 @@ export const fr: Record<MessageKey, string> = {
     "Enregistrez le profil, les paramètres, les offres et les documents dans un seul fichier. La copie contient des données personnelles : conservez-la en lieu sûr.",
   "data.download.detail": "Toutes les données de l’espace actuel",
   "data.restore": "Restaurer à partir d’un fichier",
-  "data.restore.detail": "Sauvegarde JobSearch, jusqu’à 5 Mo",
+  "data.restore.detail": "Sauvegarde JobSearch, fichier jusqu’à 10 Mo",
   "data.restoreConfirm.title": "Restaurer cette copie ?",
   "data.restoreConfirm.text":
     "Offres : {jobs}. Candidatures : {applications}. Documents : {packets}. Les données actuelles seront remplacées, puis synchronisées après la connexion.",
@@ -554,7 +554,7 @@ export const fr: Record<MessageKey, string> = {
   "error.jobState": "État d’offre invalide.",
   "error.urlScheme": "Le lien doit commencer par https:// ou http://.",
   "error.feedRead": "Impossible de lire la mise à jour des offres.",
-  "error.fileTooLarge": "Le fichier est trop volumineux. Maximum : 5 Mo.",
+  "error.fileTooLarge": "Le fichier est trop volumineux. Maximum : 10 Mo.",
   "error.backupVersion":
     "Cette version de la sauvegarde n’est pas prise en charge.",
   "error.profileVersion": "Version de profil invalide.",

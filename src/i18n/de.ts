@@ -322,7 +322,7 @@ export const de: Record<MessageKey, string> = {
     "Speichern Sie Profil, Einstellungen, Stellen und Dokumente in einer Datei. Die Kopie enthält persönliche Daten – bewahren Sie sie an einem sicheren Ort auf.",
   "data.download.detail": "Alle Daten des aktuellen Bereichs",
   "data.restore": "Aus Datei wiederherstellen",
-  "data.restore.detail": "JobSearch-Sicherung, bis 5 MB",
+  "data.restore.detail": "JobSearch-Sicherung, Datei bis 10 MB",
   "data.restoreConfirm.title": "Diese Kopie wiederherstellen?",
   "data.restoreConfirm.text":
     "Stellen: {jobs}. Bewerbungen: {applications}. Dokumente: {packets}. Die aktuellen Daten werden ersetzt und nach der Anmeldung synchronisiert.",
@@ -555,7 +555,7 @@ export const de: Record<MessageKey, string> = {
   "error.jobState": "Ungültiger Status der Stelle.",
   "error.urlScheme": "Der Link muss mit https:// oder http:// beginnen.",
   "error.feedRead": "Die Aktualisierung der Stellen konnte nicht gelesen werden.",
-  "error.fileTooLarge": "Die Datei ist zu groß. Maximal 5 MB.",
+  "error.fileTooLarge": "Die Datei ist zu groß. Maximal 10 MB.",
   "error.backupVersion":
     "Diese Version der Sicherungskopie wird nicht unterstützt.",
   "error.profileVersion": "Ungültige Profilversion.",
