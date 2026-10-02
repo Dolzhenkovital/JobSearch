@@ -39,4 +39,5 @@ if isinstance(lock, dict) and lock.get("version") == "5":
             package["dependencies"] = dependencies
     data = (json.dumps(lock, indent=2) + "\n").encode("utf-8")
 
+destination.parent.mkdir(parents=True, exist_ok=True)
 destination.write_bytes(data)
