@@ -1,6 +1,14 @@
 # Source catalog
 
-Research snapshot: 2026-09-30. Recheck official sources before implementation. No user account, provider key, or ongoing polling integration was configured during this research.
+Provider research snapshot: 2026-09-30. Recheck official sources before implementing a new provider. The research did not configure provider accounts or polling; the subsequent repository integration is recorded separately below.
+
+## Implemented source snapshot: 2026-10-02
+
+- `scripts/collect_jobbank.py` reads the public Job Bank Atom feed with `sort=D`, extracts discovery metadata, and writes ignored `public/jobs.json`. It has no candidate-specific server query or full-description fetcher.
+- A read of the deployed public snapshot on 2026-10-02 showed `status = success`, 100 records, zero full descriptions, and `fetchedAt = 2026-10-02T12:12:01.874142+00:00`. This verifies that snapshot, not complete Canadian coverage or personal search preferences.
+- A real [scheduled workflow run](https://github.com/Dolzhenkovital/JobSearch/actions/runs/36999182825) on 2026-10-02 logged successful retrieval of 100 public discovery records. Scheduled operation has therefore been observed; future runs can still fail or be delayed.
+- RSS/Atom file import and pasted/manual records exist in the app. Indeed/Jobillico currently open external searches; authenticated provider adapters, email ingestion, employer-board retrieval, and automatic complete descriptions are not implemented.
+- Collector success/fallback and runtime field meanings are covered in [the record mapping](record-contract.md). This section does not refresh the external-provider research below.
 
 | Source | Evidence and capability | Practical boundary |
 | --- | --- | --- |

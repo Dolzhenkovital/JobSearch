@@ -1,4 +1,4 @@
 interface:
   display_name: "JobSearch: розробка сервісу"
-  short_description: "Реалізація сервісу та облік заявок"
-  default_prompt: "Використай $jobsearch-build для наступного наскрізного сценарію JobSearch."
+  short_description: "Стан проєкту, розробка й синхронізація"
+  default_prompt: "Використай $jobsearch-build для наступного етапу JobSearch: оцінки вакансій та адаптації документів через зовнішній LLM."

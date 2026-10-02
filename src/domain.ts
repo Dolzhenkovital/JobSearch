@@ -283,6 +283,7 @@ export function parseBackup(text: string): Store {
       createdAt: date(d.createdAt),
       approvedAt: d.approvedAt == null ? null : date(d.approvedAt),
       ...(d.frozenAt ? { frozenAt: date(d.frozenAt) } : {}),
+      ...(d.llmRunId ? { llmRunId: string(d.llmRunId, 100), llmRulesVersion: string(d.llmRulesVersion, 100) } : {}),
     };
   });
   return base;

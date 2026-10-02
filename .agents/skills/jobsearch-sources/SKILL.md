@@ -7,6 +7,14 @@ description: "Research, implement, or troubleshoot Canadian vacancy ingestion fo
 
 Deliver attributable vacancy records and an honest account of source coverage. Treat discovery and retrieval of a complete job description as different capabilities.
 
+## Current repository integration
+
+The implemented public adapter is `scripts/collect_jobbank.py`; `.github/workflows/pages.yml` runs it before building and on a twice-daily schedule. It writes ignored `public/jobs.json`, which Vite copies into the public `dist` artifact. It never reads candidate data. Inspect [the catalog's implementation snapshot](references/source-catalog.md) when reporting what has actually been exercised.
+
+The UI also supports manual vacancy entry, pasted full descriptions, and RSS/Atom file import through `parseAtom` in `src/domain.ts`. Indeed and Jobillico links open external search pages; they are not connected source adapters. Full-description retrieval, mailbox ingestion, employer-board adapters, and cross-source canonicalization remain separate work.
+
+Use [the runtime mapping](references/record-contract.md) when changing ingestion. The richer record contract is a target handoff shape, not the current `Job` type or a directly importable browser backup.
+
 ## Establish access
 
 For a provider decision, read [the source catalog](references/source-catalog.md). It is a dated research snapshot, not an entitlement to access or a current availability guarantee. Recheck official documentation and relevant terms before depending on an integration.
@@ -36,8 +44,10 @@ Keep a content version/hash for meaningful description changes. Exclude volatile
 
 Poll at a rate appropriate to the source's documented limits and the user's needs; several runs per day is a starting proposal, not a hard requirement. Paginate or overlap time windows where supported so a truncated feed does not silently lose jobs. Make retries bounded and back off after throttling or failures.
 
-Absence from a limited feed is not proof that a job closed. Separate `active`, `closed`, and `unknown` availability from source health. Use explicit closure evidence or a suitable successful employer check. A timeout or login wall leaves availability unknown. Preserve the last good record and show when it was last checked.
+Absence from a limited feed is not proof that a job closed. Separate `active`, `closed`, and `unknown` availability from source health. Use explicit closure evidence or a suitable successful employer check. A timeout or login wall leaves availability unknown. Preserve the last good record and show when it was last checked. In the current collector, `checkedAt` records discovery observation, not a successful employer-page availability check.
 
 ## Return
 
 Report retrieved and new records, possible duplicates, incomplete descriptions, source health, check times, and coverage limitations. With implementation work, verify repeat-import behavior and at least one relevant failure path. Do not claim recurring updates until an actual scheduled run has been observed.
+
+For the current collector, inspect `status`, `fetchedAt`, `lastAttemptAt`, and scheduled-run logs: its fallback can return exit code zero with `stale` or `error`. Do not turn CI success into a fresh-source claim. Keep private imports and account data out of the public feed, and test that a refreshed snippet cannot replace a saved full description.

@@ -2512,3 +2512,30 @@ select {
     min-width: 0;
   }
 }
+.admin-users { display: grid; gap: 12px; margin: 18px 0; }
+.admin-user { border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+.admin-user strong { overflow-wrap: anywhere; display: block; }
+.admin-user .tag { margin-top: 6px; }
+.button.danger { background: #a2352f; color: white; border-color: #a2352f; }
+.delete-confirmation { border: 1px solid #d9a9a6; background: #fff7f6; padding: 20px; border-radius: 12px; margin-top: 20px; }
+.notice.error { color: #8c302b; background: #fff1ef; }
+.ai-result { padding: 18px; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; }
+.ai-result h4 { margin: 0 0 12px; }
+.ai-result pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; }
+.ai-result blockquote { margin: 10px 0; padding: 10px 14px; background: var(--soft); border-left: 3px solid var(--green); }
+.requirements { display: grid; gap: 12px; }
+.requirements article { padding: 12px 0; border-top: 1px solid var(--line); }
+.requirements .tag { margin-left: 8px; }
+.requirements p { font-size: 13px; }
+.ai-result details { margin: 12px 0; }
+.ai-result summary,.ai-history summary { cursor: pointer; color: var(--green); font-weight: 650; }
+.ai-history { margin-top: 18px; font-size: 12px; }
+.ai-panel .button-row { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .admin-user { padding: 12px; }
+  .admin-user .button-row { flex-wrap: wrap; }
+  .ai-result { padding: 12px; }
+  .ai-result .section-title-row { align-items: flex-start; flex-direction: column; }
+  .ai-panel .button-row > .button { width: 100%; justify-content: center; }
+  .requirements .tag { display: table; margin: 7px 0 0; }
+}

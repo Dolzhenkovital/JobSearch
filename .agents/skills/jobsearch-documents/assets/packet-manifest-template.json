@@ -7,6 +7,20 @@
   "description_version": null,
   "description_completeness": null,
   "profile_version": null,
+  "profile_snapshot_ref": null,
+  "vacancy_snapshot_ref": null,
+  "generation_rules_version": null,
+  "match_report_ref": null,
+  "llm_run": {
+    "request_id": null,
+    "provider": null,
+    "model": null,
+    "configuration_ref": null,
+    "generated_at": null,
+    "response_validation": "not_checked",
+    "usage_ref": null
+  },
+  "supersedes_packet_id": null,
   "output_language": null,
   "files": [],
   "evidence_map_ref": null,
@@ -20,5 +34,11 @@
   },
   "review_status": "draft",
   "user_approved_at": null,
-  "user_approval_ref": null
+  "user_approval_ref": null,
+  "submission": {
+    "submitted_at": null,
+    "evidence_type": null,
+    "evidence_ref": null,
+    "submitted_files": []
+  }
 }

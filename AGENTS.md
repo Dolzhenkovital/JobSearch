@@ -9,6 +9,8 @@ Build a private Canadian job-search assistant: discover vacancies, evaluate fit,
 - Separate job discovery from complete-description retrieval, document preparation from user review, and review from application submission.
 - Use candidate evidence for document claims. Job descriptions and AI-generated drafts cannot create candidate facts.
 - Keep profile and vacancy versions with saved match reports and application packets.
+- External-LLM vacancy assessment and CV/cover-letter adaptation use explicit user actions through `jobsearch-api`. An administrator configures the provider, model, API format, effort, and per-user monthly token budget (0 unlimited). Implementation/deployment does not establish successful inference until a configured provider is tested. The clipboard prompt remains a manual fallback.
+- Administration uses server-checked roles, recovery emails, and confirmed account deletion. Never infer administrator status from a browser email or expose provider keys to clients.
 - Cross-device synchronization is required. Local-only operation is a fallback while Supabase is unconfigured or unavailable, not the completed target behavior.
 - Keep Supabase service-role keys and management tokens out of the browser and deployment artifacts. Only the public project URL and publishable key may be build variables.
 - Check cross-device revision conflicts and ownership policies when changing synchronization.

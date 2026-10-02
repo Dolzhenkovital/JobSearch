@@ -1,0 +1,5 @@
+[functions.jobsearch-api]
+# The handler always validates the caller with Auth getUser before handling any action.
+# This also supports projects using asymmetric JWT signing keys.
+verify_jwt = false
+import_map = "./functions/deno.json"

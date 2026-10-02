@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDownWideNarrow,
   ArrowRight,
@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import {
   combineJobs,
+  contentVersion,
   matchingTerms,
   parseAtom,
   parseFeed,
@@ -56,6 +57,10 @@ import {
 } from "./ui";
 import { useWorkspace } from "./useWorkspace";
 import type { Feed, Job, Packet, Stage, View } from "./types";
+import { AdminPanel } from './AdminPanel';
+import { AiPanel } from './AiPanel';
+import { PasswordRecovery } from './PasswordRecovery';
+import { serviceCall, type ServiceStatus, type LlmRun, type TailorResult } from './service';
 
 const navigation = [
   { id: "discover", name: "Вакансії", icon: Search },
@@ -103,6 +108,37 @@ export default function App() {
     [printPacket, setPrintPacket] = useState<Packet | null>(null);
   const importFeed = useRef<HTMLInputElement>(null);
   const notify = (message: string) => setToast(message);
+  const [adminOpen,setAdminOpen]=useState(false);
+  const [serviceState,setServiceState]=useState<{owner:string;value:ServiceStatus|null;error:string}|null>(null);
+  const serviceRequest=useRef(0);
+  const accountId=workspace.user?.id||null;
+  const liveAccount=useRef(accountId);liveAccount.current=accountId;
+  const serviceStatus=serviceState?.owner===accountId?serviceState.value:null;
+  const refreshService=useCallback(async()=>{
+    const sequence=++serviceRequest.current;
+    if(!accountId){setServiceState(null);return;}
+    try{const value=await serviceCall<ServiceStatus>('status');if(sequence===serviceRequest.current)setServiceState({owner:accountId,value,error:''});}
+    catch(e){if(sequence===serviceRequest.current)setServiceState({owner:accountId,value:null,error:(e as Error).message});}
+  },[accountId]);
+  useEffect(()=>{void refreshService();return()=>{serviceRequest.current++;};},[refreshService]);
+  function saveAiPacket(run:LlmRun){
+    if(!accountId||liveAccount.current!==accountId||run.user_id!==accountId||run.operation!=='tailor'||run.status!=='succeeded'||!run.result)return;
+    const result=run.result as TailorResult;
+    const now=new Date().toISOString();
+    const contact=[store.profile.name,store.profile.email,store.profile.phone].filter(Boolean).join('\n');
+    const packet:Packet={id:crypto.randomUUID(),jobId:run.input.job.id,title:run.input.job.title,employer:run.input.job.employer,
+      cv:[contact,result.cv].filter(Boolean).join('\n\n'),letter:[contact,result.letter].filter(Boolean).join('\n\n'),
+      profileVersion:run.input.profileVersion,descriptionVersion:contentVersion(run.input.job.description),createdAt:now,approvedAt:null,
+      llmRunId:run.id,llmRulesVersion:run.rules_version};
+    update(s=>{
+      if(s.packets.some(p=>p.llmRunId===run.id))return s;
+      const job=jobs.find(j=>j.id===run.input.job.id);
+      const existing=s.applications[run.input.job.id];
+      return {...s,packets:[packet,...s.packets],applications:!job||existing?s.applications:{...s.applications,
+        [job.id]:{job,stage:'reviewing',note:'',updatedAt:now}}};
+    });
+    setSelectedId(null);navigate('documents');notify('Нову AI-чернетку збережено. Перевірте факти, актуальність і верстку.');
+  }
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 6500);
@@ -328,6 +364,7 @@ export default function App() {
             ))}
           </nav>
           <div className="sidebar-spacer" />
+          {serviceStatus?.isAdmin&&<button className="sidebar-settings" onClick={()=>setAdminOpen(true)}><ShieldCheck size={18}/>Адміністрування</button>}
           <div className="sidebar-tip">
             <span className="mini-spark">
               <Sparkles size={20} />
@@ -999,12 +1036,19 @@ export default function App() {
           initialTab={settingsTab}
         />
       )}
+      {adminOpen&&serviceStatus?.isAdmin&&accountId&&<AdminPanel key={accountId} onClose={()=>setAdminOpen(false)} notify={notify} onConfigChange={()=>void refreshService()}/>}
+      <PasswordRecovery/>
       {addJob && <JobForm onSave={saveJob} onClose={() => setAddJob(false)} />}
       {selected && (
         <JobDetails
+          key={`${accountId||'guest'}:${selected.id}`}
           job={selected}
           application={store.applications[selected.id]}
           profile={store.profile}
+          ai={<>
+            {serviceState?.owner===accountId&&serviceState?.error&&<div className="notice" role="alert">{serviceState.error}<button className="text-link" onClick={()=>void refreshService()}>Оновити AI-сервіс</button></div>}
+            <AiPanel key={`${accountId||'guest'}:${selected.id}`} job={selected} profile={store.profile} settings={store.settings} userId={accountId} service={serviceStatus} onPacket={saveAiPacket} onUsageChange={()=>void refreshService()}/>
+          </>}
           onClose={() => setSelectedId(null)}
           onSave={saveJob}
           onBookmark={() => toggleSaved(selected)}
@@ -1206,6 +1250,7 @@ function JobDetails({
   onPrepare,
   onStage,
   onNote,
+  ai,
 }: {
   job: Job;
   application?: import("./types").Application;
@@ -1216,6 +1261,7 @@ function JobDetails({
   onPrepare: () => void;
   onStage: (stage: Stage) => void;
   onNote: (note: string) => void;
+  ai?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false),
     [description, setDescription] = useState(job.description),
@@ -1327,6 +1373,7 @@ function JobDetails({
             </p>
           )}
         </section>
+        {ai}
         <section className="detail-section">
           <div className="form-grid">
             <Field label="Статус моєї заявки">

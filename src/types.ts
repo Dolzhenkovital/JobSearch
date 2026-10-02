@@ -61,6 +61,8 @@ export type Packet = {
   createdAt: string;
   approvedAt: string | null;
   frozenAt?: string;
+  llmRunId?: string;
+  llmRulesVersion?: string;
 };
 export type Store = {
   schemaVersion: 1;
