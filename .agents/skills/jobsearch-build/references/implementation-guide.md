@@ -32,6 +32,9 @@ LLM runs live in separate owner-scoped `llm_runs` rows; packets retain optional 
 ## Synchronization invariants
 
 - Guest and account caches are separate. Existing remote data takes precedence over an empty guest workspace; guest adoption is appropriate only for a new empty account.
+- Adoption moves the data: once the account's own cache holds the adopted copy as unsynced, the guest cache is removed, so it is neither shown after sign-out nor adopted by another account. Guest data displaced by an existing cloud copy stays guest data.
+- Sign-out may delete the account's local cache, conflict backup, and recovery copies. Unsynced (dirty or unreadable) data is deleted only after an explicit confirmation, and only after the hook has left the account.
+- A damaged cache keeps one recovery copy per distinct content (`:recovery:<contentVersion>`), however often it is read.
 - Apply pending reads/writes only to the same account/session generation. Sign-out or account change must prevent late responses from installing another account's data.
 - A write uses the revision on which the local edits were based. Divergent dirty local and remote copies require an explicit conflict choice, not a silent overwrite.
 - Keep edits made during an upload dirty for a later save. Preserve local changes during offline failures and preserve damaged-cache originals for recovery.

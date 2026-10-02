@@ -1308,6 +1308,12 @@ select {
   border-radius: 11px;
   padding: 20px;
 }
+.sign-out-confirm {
+  margin: 16px 0 0;
+}
+.sign-out-confirm .checkbox-row {
+  margin: 8px 0 4px;
+}
 .account-line {
   display: flex;
   align-items: flex-start;

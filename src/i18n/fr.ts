@@ -304,7 +304,18 @@ export const fr: Record<MessageKey, string> = {
   "auth.failed": "Impossible de se connecter.",
   "auth.signOutFailed": "Impossible de se déconnecter. Réessayez.",
   "auth.signedOut": "Vous êtes déconnecté(e) du compte",
+  "auth.signedOutRemoved":
+    "Vous êtes déconnecté(e) du compte. La copie locale a été supprimée.",
+  "auth.signedOutKept":
+    "Vous êtes déconnecté(e) du compte, mais la copie locale n’a pas été supprimée. Reconnectez-vous pour synchroniser les modifications ou relancer la suppression.",
   "auth.signOut": "Se déconnecter",
+  "signOut.title": "Se déconnecter du compte sur cet appareil ?",
+  "signOut.remove": "Supprimer la copie locale des données de ce navigateur",
+  "signOut.removeHint":
+    "La copie infonuagique reste dans le compte. Supprimez la copie locale sur un appareil partagé ou qui n’est pas le vôtre.",
+  "signOut.unsynced":
+    "Certaines modifications ne sont pas encore synchronisées. Supprimer la copie locale les fera perdre.",
+  "signOut.discard": "Oui, supprimer les modifications non synchronisées",
   "auth.password": "Mot de passe",
   "auth.passwordNew": "Au moins 10 caractères",
   "auth.passwordCurrent": "Votre mot de passe",
