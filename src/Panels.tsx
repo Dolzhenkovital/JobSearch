@@ -45,8 +45,18 @@ export function SettingsPanel({
   notify: Notify;
   initialTab?: string;
 }) {
-  const [tab, setTab] = useState(initialTab),
-    [settings, setSettings] = useState(workspace.store.settings);
+  const [tab, setTab] = useState(initialTab);
+  const accountId = workspace.user?.id || null;
+  const [draft, setDraft] = useState<{
+    owner: string | null;
+    changes: Partial<Settings>;
+  }>({ owner: accountId, changes: {} });
+  // Keep only edited fields so an open form follows incoming cloud changes.
+  // Reset drafts on account changes before rendering another user's settings.
+  if (draft.owner !== accountId)
+    setDraft({ owner: accountId, changes: {} });
+  const changes = draft.owner === accountId ? draft.changes : {};
+  const settings = { ...workspace.store.settings, ...changes };
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [register, setRegister] = useState(false),
@@ -55,7 +65,13 @@ export function SettingsPanel({
   const input = useRef<HTMLInputElement>(null);
   const [restore, setRestore] = useState<Store | null>(null);
   const field = (key: keyof Settings, value: string | boolean) =>
-    setSettings((previous) => ({ ...previous, [key]: value }));
+    setDraft((previous) => ({
+      owner: accountId,
+      changes: {
+        ...(previous.owner === accountId ? previous.changes : {}),
+        [key]: value,
+      },
+    }));
   async function login(event: React.FormEvent) {
     event.preventDefault();
     if (!cloud) return;
@@ -130,7 +146,10 @@ export function SettingsPanel({
             id="settings-form"
             onSubmit={(event) => {
               event.preventDefault();
-              workspace.update((s) => ({ ...s, settings }));
+              workspace.update((s) => ({
+                ...s,
+                settings: { ...s.settings, ...changes },
+              }));
               notify("Налаштування збережено");
               onClose();
             }}
