@@ -49,6 +49,10 @@ export const WORKSPACE_LIMITS = {
   bytes: 5 * 1024 * 1024,
 } as const;
 export const MAX_IMPORT_BYTES = WORKSPACE_LIMITS.bytes;
+// A backup file is indented JSON, so it is larger than the same workspace as the cloud stores
+// it: by up to about 0.5 MB at the item limits. This bound only keeps a huge file from being
+// read and parsed; `parseBackup` applies the workspace limits to the parsed data.
+export const MAX_BACKUP_FILE_BYTES = 2 * WORKSPACE_LIMITS.bytes;
 export const initialStore = (): Store => ({
   schemaVersion: 1,
   profile: {
@@ -391,8 +395,11 @@ export function validateStore(value: unknown): Store {
   });
   return base;
 }
+/** The backup file as the interface downloads it; `parseBackup` restores it. */
+export const serializeBackup = (store: Store): string =>
+  JSON.stringify(store, null, 2);
 export function parseBackup(text: string): Store {
-  if (new Blob([text]).size > MAX_IMPORT_BYTES)
+  if (new Blob([text]).size > MAX_BACKUP_FILE_BYTES)
     throw new Error(t("error.fileTooLarge"));
   const store = validateStore(JSON.parse(text));
   if (storedBytes(store) > WORKSPACE_LIMITS.bytes)

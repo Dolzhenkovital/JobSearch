@@ -328,7 +328,7 @@ export const en: Record<MessageKey, string> = {
     "Save your profile, settings, jobs and documents as one file. The copy contains personal data, so keep it in a safe place.",
   "data.download.detail": "All data of the current space",
   "data.restore": "Restore from a file",
-  "data.restore.detail": "JobSearch backup, up to 5 MB",
+  "data.restore.detail": "JobSearch backup, a file up to 10 MB",
   "data.restoreConfirm.title": "Restore this copy?",
   "data.restoreConfirm.text":
     "Jobs: {jobs}. Applications: {applications}. Documents: {packets}. The current data will be replaced and, after sign-in, synced.",
@@ -556,7 +556,7 @@ export const en: Record<MessageKey, string> = {
   "error.jobState": "Invalid job state.",
   "error.urlScheme": "The link must start with https:// or http://.",
   "error.feedRead": "Could not read the job update.",
-  "error.fileTooLarge": "The file is too large. The maximum is 5 MB.",
+  "error.fileTooLarge": "The file is too large. The maximum is 10 MB.",
   "error.backupVersion": "This backup version is not supported.",
   "error.profileVersion": "Invalid profile version.",
   "error.salaryAmount": "Invalid pay amount.",

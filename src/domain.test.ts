@@ -6,12 +6,13 @@ import {
   createPacket,
   initialStore,
   matchingTerms,
-  MAX_IMPORT_BYTES,
+  MAX_BACKUP_FILE_BYTES,
   mergeImportedJobs,
   parseAtom,
   parseBackup,
   preferenceReasons,
   safeUrl,
+  serializeBackup,
   storedBytes,
   validateStore,
   WORKSPACE_LIMITS,
@@ -238,15 +239,67 @@ describe("workspace limits", () => {
     const store = initialStore();
     store.jobs = jobs(WORKSPACE_LIMITS.jobs);
     // Pad the compact file to exactly the limit; stored JSON adds a space after each separator.
-    let missing = MAX_IMPORT_BYTES - new Blob([JSON.stringify(store)]).size;
+    let missing = WORKSPACE_LIMITS.bytes - new Blob([JSON.stringify(store)]).size;
     for (const item of store.jobs) {
       const extra = Math.min(missing, 200000 - item.description.length);
       item.description += "x".repeat(extra);
       missing -= extra;
     }
     const text = JSON.stringify(store);
-    expect(new Blob([text]).size).toBe(MAX_IMPORT_BYTES);
+    expect(new Blob([text]).size).toBe(WORKSPACE_LIMITS.bytes);
     expect(() => parseBackup(text)).toThrow(t("workspace.limit.size"));
+  });
+  it("restores the downloaded backup of a workspace that is as large as the app accepts", () => {
+    // Every list at its item limit and every optional field present: the shape whose
+    // indented file exceeds the stored size the most.
+    const store = initialStore();
+    store.jobs = jobs(WORKSPACE_LIMITS.jobs);
+    store.applications = Object.fromEntries(
+      jobs(WORKSPACE_LIMITS.applications, "applied").map((saved) => [
+        saved.id,
+        {
+          job: saved,
+          stage: "submitted" as const,
+          note: "",
+          updatedAt: saved.checkedAt,
+          submittedAt: saved.checkedAt,
+          evidence: "user_reported" as const,
+        },
+      ]),
+    );
+    store.packets = Array.from({ length: WORKSPACE_LIMITS.packets }, (_, i) => ({
+      ...packet(i),
+      frozenAt: job.checkedAt,
+      llmRunId: "synthetic-run",
+      llmRulesVersion: "1",
+    }));
+    // Fill the descriptions until the workspace is exactly at the size limit.
+    let missing = WORKSPACE_LIMITS.bytes - storedBytes(store);
+    for (const item of store.jobs) {
+      const extra = Math.min(missing, 200000 - item.description.length);
+      item.description += "x".repeat(extra);
+      missing -= extra;
+    }
+    expect(storedBytes(store)).toBe(WORKSPACE_LIMITS.bytes);
+    const file = serializeBackup(store);
+    const size = new Blob([file]).size;
+    expect(size).toBeGreaterThan(WORKSPACE_LIMITS.bytes);
+    expect(size).toBeLessThanOrEqual(MAX_BACKUP_FILE_BYTES);
+    expect(parseBackup(file)).toEqual(store);
+  });
+  it("does not parse a backup file above the file bound", () => {
+    const store = initialStore();
+    const json = serializeBackup(store);
+    // Leading whitespace is valid JSON, so only the bound can reject the larger file.
+    const padded = (bytes: number) =>
+      " ".repeat(bytes - new Blob([json]).size) + json;
+    expect(parseBackup(padded(MAX_BACKUP_FILE_BYTES))).toEqual(store);
+    expect(() => parseBackup(padded(MAX_BACKUP_FILE_BYTES + 1))).toThrow(
+      t("error.fileTooLarge"),
+    );
+    const megabytes = `${MAX_BACKUP_FILE_BYTES / 1024 / 1024} МБ`;
+    expect(t("error.fileTooLarge")).toContain(megabytes);
+    expect(t("data.restore.detail")).toContain(megabytes);
   });
   it("caps an import at the job limit and counts what was left out", () => {
     const current = jobs(WORKSPACE_LIMITS.jobs - 2, "kept");

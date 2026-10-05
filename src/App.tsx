@@ -37,6 +37,7 @@ import {
   parseFeed,
   preferenceReasons,
   safeUrl,
+  serializeBackup,
   sourceLabel,
   STAGES,
   WORKSPACE_LIMITS,
@@ -533,7 +534,7 @@ export default function App() {
                     onClick={() =>
                       download(
                         "JobSearch-conflict-backup.json",
-                        JSON.stringify(store, null, 2),
+                        serializeBackup(store),
                         "application/json",
                       )
                     }

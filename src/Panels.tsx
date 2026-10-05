@@ -24,9 +24,11 @@ import {
   createPacket,
   DOCUMENT_LANGUAGES,
   MANUAL_SOURCE,
+  MAX_BACKUP_FILE_BYTES,
   MAX_IMPORT_BYTES,
   parseBackup,
   safeUrl,
+  serializeBackup,
 } from "./domain";
 import { useI18n } from "./i18n";
 import { download, Empty, ExternalLink, Field, formatTime, Modal } from "./ui";
@@ -160,7 +162,8 @@ export function SettingsPanel({
     event.target.value = "";
     if (!file) return;
     try {
-      if (file.size > MAX_IMPORT_BYTES) throw new Error(t("error.maxSize"));
+      if (file.size > MAX_BACKUP_FILE_BYTES)
+        throw new Error(t("error.fileTooLarge"));
       setRestore(parseBackup(await file.text()));
     } catch (error) {
       notify((error as Error).message);
@@ -478,7 +481,7 @@ export function SettingsPanel({
                 onClick={() =>
                   download(
                     `JobSearch-backup-${new Date().toISOString().slice(0, 10)}.json`,
-                    JSON.stringify(workspace.store, null, 2),
+                    serializeBackup(workspace.store),
                     "application/json",
                   )
                 }
@@ -525,7 +528,7 @@ export function SettingsPanel({
                     onClick={() => {
                       download(
                         `JobSearch-before-restore-${Date.now()}.json`,
-                        JSON.stringify(workspace.store, null, 2),
+                        serializeBackup(workspace.store),
                         "application/json",
                       );
                       try {
