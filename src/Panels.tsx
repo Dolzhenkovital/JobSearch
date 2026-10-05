@@ -82,6 +82,7 @@ export function SettingsPanel({
   const [promoCode, setPromoCode] = useState('');
   const [registration, setRegistration] = useState<RegistrationCheck | null>(null);
   const [registrationError, setRegistrationError] = useState('');
+  const authInFlight = useRef(false);
   useEffect(() => {
     if (!register || workspace.user || !workspace.configured) return;
     let live = true;
@@ -119,7 +120,8 @@ export function SettingsPanel({
     }));
   async function login(event: React.FormEvent) {
     event.preventDefault();
-    if (!cloud) return;
+    if (!cloud || authInFlight.current) return;
+    authInFlight.current = true;
     setBusy(true);
     setAuthMessage("");
     try {
@@ -129,6 +131,9 @@ export function SettingsPanel({
       if (error) throw error;
       setPassword("");
       setPromoCode('');
+      if (register) {
+        setRegister(false); setRegistration(null); setRegistrationError('');
+      }
       if (register && !data.session)
         setAuthMessage(t("auth.checkEmail"));
       else notify(t("auth.signedIn"));
@@ -136,10 +141,11 @@ export function SettingsPanel({
       setAuthMessage((error as Error).message || t("auth.failed"));
       // The administrator may have changed the mode while this form was open.
       if (register) {
-        try { setRegistration(await checkRegistration()); }
+        try { setRegistration(await checkRegistration()); setRegistrationError(''); }
         catch { setRegistration(null); setRegistrationError(t('registration.unavailable')); }
       }
     } finally {
+      authInFlight.current = false;
       setBusy(false);
     }
   }
@@ -478,7 +484,7 @@ export function SettingsPanel({
                   className="switch-auth"
                   disabled={busy}
                   onClick={() => {
-                    setRegistration(null); setRegistrationError('');
+                    setRegistration(null); setRegistrationError(''); setPromoCode('');
                     setRegister(!register);
                     setAuthMessage("");
                   }}

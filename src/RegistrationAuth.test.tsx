@@ -37,6 +37,18 @@ it('requires a code only for registration and preserves ordinary sign-in', async
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(mock.register).toHaveBeenCalledWith('synthetic@example.invalid', 'synthetic-password', 'BETA');
   expect(container.textContent).toContain('Перевірте пошту');
+  expect(container.textContent).not.toContain('Промокод');
+  expect(button('Увійти')).toBeDefined();
+});
+it('finishes signup even when Auth returns an immediate session', async () => {
+  mock.register.mockResolvedValueOnce({ data: { session: {} }, error: null });
+  await act(async () => container.querySelector<HTMLButtonElement>('.switch-auth')!.click());
+  await edit('Email', 'synthetic@example.invalid'); await edit('Пароль', 'synthetic-password'); await edit('Промокод', 'BETA');
+  await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(mock.register).toHaveBeenCalledTimes(1);
+  expect(input('Пароль').value).toBe('');
+  expect(container.textContent).not.toContain('Промокод');
+  expect(button('Увійти').disabled).toBe(false);
 });
 it('blocks submission when registration requirements are unavailable and permits refresh', async () => {
   mock.check.mockRejectedValueOnce(new Error('Не вдалося перевірити умови реєстрації.'));

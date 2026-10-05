@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test.use({ locale: 'en-CA' });
 
 test('registration follows server mode, native validation and unavailable-policy protection', async ({ page }) => {
-  let mode = 'promo', unavailable = false;
+  let mode = 'promo', unavailable = false, accept = false;
   const attempts: Record<string, unknown>[] = [];
   // Exercise the built UI without creating accounts or sending email on either environment.
   await page.route('https://*.supabase.co/**', async route => {
@@ -13,8 +13,9 @@ test('registration follows server mode, native validation and unavailable-policy
         body: JSON.stringify(unavailable ? { message: 'Synthetic unavailable policy' } : { mode }) });
     } else if (path === '/auth/v1/signup') {
       attempts.push(route.request().postDataJSON());
-      await route.fulfill({ status: 400, contentType: 'application/json',
-        body: JSON.stringify({ code: 'hook_rejected', msg: 'promo_code_inactive' }) });
+      await route.fulfill({ status: accept ? 200 : 400, contentType: 'application/json',
+        body: JSON.stringify(accept ? { user: { id: '00000000-0000-4000-8000-000000000001',
+          email: 'synthetic@example.invalid' }, session: null } : { code: 'hook_rejected', msg: 'promo_code_inactive' }) });
     } else await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   });
   await page.route('**/jobs.json', route => route.fulfill({ contentType: 'application/json',
@@ -54,4 +55,11 @@ test('registration follows server mode, native validation and unavailable-policy
   await expect(code).toBeVisible();
   await expect(submit).toBeEnabled();
   expect(attempts).toHaveLength(1);
+  accept = true;
+  await code.fill('BETA');
+  await submit.click();
+  await expect(dialog.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(code).toHaveCount(0);
+  await expect(dialog.getByLabel('Password', { exact: true })).toHaveValue('');
+  expect(attempts).toHaveLength(2);
 });
