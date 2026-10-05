@@ -690,6 +690,7 @@ export const en: Record<MessageKey, string> = {
   'registration.required': 'An active promo code is required to create an account.',
   'registration.inactive': 'The promo code is not active. Check the code or contact the administrator.',
   'registration.unavailable': 'Could not check registration requirements. Try refreshing them later.',
+  'registration.failed': 'Could not create the account because of a server error. If you are using a promo code, it may also have become inactive. Try again later or contact the administrator.',
   'service.registration_conflict': 'Another administrator changed the settings. Refresh the list and try again.',
   'service.promo_code_exists': 'This promo code already exists. Enter a different code.',
 };

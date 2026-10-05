@@ -711,6 +711,7 @@ export const de: Record<MessageKey, string> = {
   'registration.required': 'Zur Kontoerstellung ist ein aktiver Aktionscode erforderlich.',
   'registration.inactive': 'Der Aktionscode ist nicht aktiv. Prüfen Sie den Code oder wenden Sie sich an den Administrator.',
   'registration.unavailable': 'Die Registrierungsbedingungen konnten nicht geprüft werden. Versuchen Sie später, sie zu aktualisieren.',
+  'registration.failed': 'Das Konto konnte wegen eines Serverfehlers nicht erstellt werden. Falls Sie einen Aktionscode verwenden, kann dieser auch inzwischen inaktiv geworden sein. Versuchen Sie es später erneut oder wenden Sie sich an den Administrator.',
   'service.registration_conflict': 'Ein anderer Administrator hat die Einstellungen geändert. Aktualisieren Sie die Liste und versuchen Sie es erneut.',
   'service.promo_code_exists': 'Dieser Code existiert bereits. Geben Sie einen anderen Code ein.',
 };

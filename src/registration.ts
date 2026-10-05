@@ -22,17 +22,15 @@ export async function registerAccount(email: string, password: string, code: str
   if (current.mode === 'promo' && !code.trim()) throw new Error(t('registration.inactive'));
   const result = await cloud.auth.signUp({ email, password, options: {
     emailRedirectTo: `${location.origin}${import.meta.env.BASE_URL}`,
-    data: { registration_promo_code: code.trim().toUpperCase() },
+    data: current.mode === 'promo' ? { registration_promo_code: code.trim().toUpperCase() } : {},
   } });
   if (result.error) {
     if (result.error.message.includes('promo_code_inactive')) throw new Error(t('registration.inactive'));
     // The database trigger also protects the last activation if another signup won the race.
-    // Auth masks trigger exceptions. In promo mode the trigger can reject an inactive code,
-    // including one exhausted after the hook. Do not expose a public validity oracle or retry signup.
+    // Auth masks database exceptions, including a quota lost after the hook. The actual cause
+    // is unknown: preserve that distinction, without a public validity oracle or signup retry.
     if (result.error.code === 'unexpected_failure' || result.error.message.includes('Database error saving new user')) {
-      if (current.mode === 'promo' || (await checkRegistration()).mode === 'promo')
-        throw new Error(t('registration.inactive'));
-      throw new Error(t('auth.failed'));
+      throw new Error(t('registration.failed'));
     }
     throw result.error;
   }

@@ -72,11 +72,12 @@ begin
     insert into private.promo_registrations(promo_id, user_id) values(redeemed, new.id);
   end if;
   -- The immutable association above is authoritative, not user-editable Auth metadata.
-  update auth.users set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) - 'registration_promo_code' where id = new.id;
+  -- Do not rewrite Auth's own user row during signup; GoTrue owns that record.
   return new;
 end;
 $$;
-revoke all on function private.record_promo_registration() from public, anon, authenticated;
+alter function private.record_promo_registration() owner to postgres;
+revoke all on function private.record_promo_registration() from public, anon, authenticated, service_role, supabase_auth_admin;
 create trigger jobsearch_registration after insert on auth.users
   for each row execute function private.record_promo_registration();
 

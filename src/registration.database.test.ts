@@ -44,13 +44,15 @@ describe('registration quotas enforced by the Auth insert transaction', () => {
     await role('postgres');
     expect((await db.query<{ count: number }>('select count(*) from auth.users')).rows[0].count).toBe(2);
   });
-  it('caps actual new accounts, normalizes code case, and strips editable promo metadata', async () => {
+  it('caps actual new accounts, normalizes case, and keeps provenance independent of editable metadata', async () => {
     await create('LIMITED', 2);
     const user = await signup(' limited ');
     await signup('Limited');
     await expect(signup('LIMITED')).rejects.toThrow('promo_code_inactive');
     expect(await count('LIMITED')).toBe(2);
-    expect((await db.query<{ raw_user_meta_data: unknown }>('select raw_user_meta_data from auth.users where id=$1', [user])).rows[0].raw_user_meta_data).toEqual({ display_name: 'Synthetic' });
+    await db.query('update auth.users set raw_user_meta_data=$1 where id=$2', ['{"registration_promo_code":"FORGED"}', user]);
+    await role('service_role');
+    expect((await db.query<{ result: Record<string, string> }>('select public.registration_user_codes($1,$2) result', [admin, [user]])).rows[0].result).toEqual({ [user]: 'LIMITED' });
   });
   it('does not spend a code on a failed account transaction or recreate an existing account', async () => {
     await create('ROLLBACK', 1);

@@ -1,5 +1,5 @@
 import { loadEnv, type Plugin } from "vite";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { publicCloudConfig } from "./src/publicCloudConfig.ts";
 
@@ -31,6 +31,6 @@ export default defineConfig(({ mode }) => {
     // Keep small font subsets as files: inlined data: URIs are blocked by the page's font-src 'self'.
     build: { sourcemap: false, assetsInlineLimit: 0 },
     // Scratch checkouts under ignored .claude/worktrees are not part of this application's suite.
-    test: { setupFiles: ["src/test.setup.ts"], include: ["src/**/*.test.{ts,tsx}"] },
+    test: { setupFiles: ["src/test.setup.ts"], exclude: [...configDefaults.exclude, ".claude/**", "work/**"] },
   };
 });

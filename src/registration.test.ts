@@ -19,16 +19,17 @@ it('passes the normalized code to Auth and does not retry signup', async () => {
   expect(mock.signUp).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ data: { registration_promo_code: 'WELCOME' } }) }));
   expect(mock.signUp).toHaveBeenCalledTimes(1);
 });
-it('shows inactive code when the Auth trigger rejects a code, without a validity probe or signup retry', async () => {
+it('reports masked database failures without falsely confirming code inactivity or retrying signup', async () => {
   mock.rpc.mockResolvedValue({ data: { mode: 'promo' }, error: null });
   mock.signUp.mockResolvedValue({ data: null, error: { code: 'unexpected_failure', message: 'Database error saving new user' } });
-  await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', 'LAST')).rejects.toThrow('Промокод не активний');
+  await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', 'LAST')).rejects.toThrow('Не вдалося створити акаунт');
   expect(mock.signUp).toHaveBeenCalledTimes(1);
   expect(mock.rpc).toHaveBeenCalledTimes(1);
 });
 it('accepts free registration, translates the hook rejection and preserves ordinary Auth errors', async () => {
   mock.rpc.mockResolvedValue({ data: { mode: 'free', valid: true }, error: null });
   await registerAccount('synthetic@example.invalid', 'synthetic-password', '');
+  expect(mock.signUp).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ data: {} }) }));
   mock.signUp.mockResolvedValue({ data: null, error: { message: 'promo_code_inactive' } });
   await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', '')).rejects.toThrow('Промокод не активний');
   mock.signUp.mockResolvedValue({ data: null, error: new Error('Email rate limit exceeded') });

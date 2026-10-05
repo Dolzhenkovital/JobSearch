@@ -478,6 +478,7 @@ export function SettingsPanel({
                   className="switch-auth"
                   disabled={busy}
                   onClick={() => {
+                    setRegistration(null); setRegistrationError('');
                     setRegister(!register);
                     setAuthMessage("");
                   }}

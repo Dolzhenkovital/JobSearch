@@ -705,6 +705,7 @@ export const fr: Record<MessageKey, string> = {
   'registration.required': 'Un code promotionnel actif est nécessaire pour créer un compte.',
   'registration.inactive': 'Le code promotionnel n’est pas actif. Vérifiez le code ou contactez l’administrateur.',
   'registration.unavailable': 'Impossible de vérifier les conditions d’inscription. Essayez de les actualiser plus tard.',
+  'registration.failed': 'Impossible de créer le compte en raison d’une erreur du serveur. Si vous utilisez un code promotionnel, il peut aussi être devenu inactif. Réessayez plus tard ou contactez l’administrateur.',
   'service.registration_conflict': 'Un autre administrateur a modifié les paramètres. Actualisez la liste et réessayez.',
   'service.promo_code_exists': 'Ce code existe déjà. Saisissez un autre code.',
 };
