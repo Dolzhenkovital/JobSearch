@@ -1,0 +1,35 @@
+// @vitest-environment jsdom
+import { beforeEach, it, expect, vi } from 'vitest';
+import { checkRegistration, registerAccount } from './registration';
+const mock = vi.hoisted(() => ({ rpc: vi.fn(), signUp: vi.fn() }));
+vi.mock('./cloud', () => ({ cloud: { rpc: mock.rpc, auth: { signUp: mock.signUp } } }));
+beforeEach(() => { vi.resetAllMocks(); mock.signUp.mockResolvedValue({ data: { session: null }, error: null }); });
+it('blocks invalid codes and unavailable registration checks before Auth signup', async () => {
+  mock.rpc.mockResolvedValue({ data: { mode: 'promo', valid: false }, error: null });
+  await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', 'INACTIVE')).rejects.toThrow('Промокод не активний');
+  expect(mock.signUp).not.toHaveBeenCalled();
+  mock.rpc.mockResolvedValue({ data: null, error: { message: 'missing migration' } });
+  await expect(checkRegistration()).rejects.toThrow('Не вдалося перевірити');
+  expect(mock.signUp).not.toHaveBeenCalled();
+});
+it('passes the normalized code to Auth and does not retry signup', async () => {
+  mock.rpc.mockResolvedValue({ data: { mode: 'promo', valid: true }, error: null });
+  await registerAccount('synthetic@example.invalid', 'synthetic-password', ' welcome ');
+  expect(mock.signUp).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ data: { registration_promo_code: 'WELCOME' } }) }));
+  expect(mock.signUp).toHaveBeenCalledTimes(1);
+});
+it('shows inactive code when another account consumed the last activation after the precheck', async () => {
+  mock.rpc.mockResolvedValueOnce({ data: { mode: 'promo', valid: true }, error: null })
+    .mockResolvedValueOnce({ data: { mode: 'promo', valid: false }, error: null });
+  mock.signUp.mockResolvedValue({ data: null, error: { code: 'unexpected_failure', message: 'Database error saving new user' } });
+  await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', 'LAST')).rejects.toThrow('Промокод не активний');
+  expect(mock.signUp).toHaveBeenCalledTimes(1);
+});
+it('accepts free registration, translates the optional hook rejection and preserves ordinary Auth errors', async () => {
+  mock.rpc.mockResolvedValue({ data: { mode: 'free', valid: true }, error: null });
+  await registerAccount('synthetic@example.invalid', 'synthetic-password', '');
+  mock.signUp.mockResolvedValue({ data: null, error: { message: 'promo_code_inactive' } });
+  await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', '')).rejects.toThrow('Промокод не активний');
+  mock.signUp.mockResolvedValue({ data: null, error: new Error('Email rate limit exceeded') });
+  await expect(registerAccount('synthetic@example.invalid', 'synthetic-password', '')).rejects.toThrow('Email rate limit exceeded');
+});

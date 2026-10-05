@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
     base,
     // Keep small font subsets as files: inlined data: URIs are blocked by the page's font-src 'self'.
     build: { sourcemap: false, assetsInlineLimit: 0 },
-    test: { setupFiles: ["src/test.setup.ts"] },
+    // Scratch checkouts under ignored .claude/worktrees are not part of this application's suite.
+    test: { setupFiles: ["src/test.setup.ts"], include: ["src/**/*.test.{ts,tsx}"] },
   };
 });

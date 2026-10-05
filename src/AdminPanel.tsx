@@ -1,6 +1,7 @@
 import { useEffect,useRef,useState } from 'react';
-import { KeyRound,LoaderCircle,RefreshCw,Save,Trash2,Users,Sparkles,Mail } from 'lucide-react';
+import { KeyRound,LoaderCircle,RefreshCw,Save,Trash2,Users,Sparkles,Mail,Ticket } from 'lucide-react';
 import {SmtpPanel} from './SmtpPanel';
+import {RegistrationPanel} from './RegistrationPanel';
 import { Field,Modal,formatDate } from './ui';
 import { useI18n } from './i18n';
 import { serviceCall,EFFORTS,RULES_VERSION,type Account,type PublicLlmConfig,type ServiceStatus } from './service';
@@ -31,7 +32,7 @@ function RulesNotice({request}:{request:typeof serviceCall}){
 
 export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{onClose:()=>void;notify:(s:string)=>void;onConfigChange:()=>void;request?:typeof serviceCall}){
   const {t}=useI18n();
-  const [tab,setTab]=useState<'users'|'llm'|'smtp'>('users');
+  const [tab,setTab]=useState<'users'|'llm'|'smtp'|'registration'>('users');
   const [users,setUsers]=useState<Account[]>([]),[page,setPage]=useState(1),[hasMore,setHasMore]=useState(false);
   const [config,setConfig]=useState<PublicLlmConfig|null>(null),[apiKey,setApiKey]=useState('');
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -64,20 +65,23 @@ export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{
     }catch(e){if(active.current)setError((e as Error).message);}finally{if(active.current)setBusy(false);}
   }
   return <Modal title={t('admin.title')} subtitle={t('admin.subtitle')} onClose={onClose} wide>
-    <div className="modal-tabs" role="tablist" aria-label={t('admin.title')}>
+    <div className="modal-tabs admin-tabs" role="tablist" aria-label={t('admin.title')}>
       <button role="tab" aria-selected={tab==='users'} className={tab==='users'?'active':''} disabled={busy} onClick={()=>setTab('users')}><Users size={17}/>{t('admin.tab.users')}</button>
       <button role="tab" aria-selected={tab==='llm'} className={tab==='llm'?'active':''} disabled={busy} onClick={()=>setTab('llm')}><Sparkles size={17}/>{t('admin.tab.llm')}</button>
       <button role="tab" aria-selected={tab==='smtp'} className={tab==='smtp'?'active':''} disabled={busy} onClick={()=>setTab('smtp')}><Mail size={17}/>{t('admin.tab.smtp')}</button>
+      <button role="tab" aria-selected={tab==='registration'} className={tab==='registration'?'active':''} disabled={busy} onClick={()=>setTab('registration')}><Ticket size={17}/>{t('registration.title')}</button>
     </div>
     <div className="modal-body">
       {error&&<div className="notice error" role="alert">{error}</div>}
       {busy&&<p role="status"><LoaderCircle size={17} className="spin"/> {t('common.processing')}</p>}
       {tab==='smtp'&&<SmtpPanel request={request} notify={notify}/>}
+      {tab==='registration'&&<RegistrationPanel request={request} notify={notify}/>}
       {tab==='users'&&<>
         <div className="section-title-row"><h3>{t('admin.users.title')}</h3><button className="button secondary small" disabled={busy} onClick={()=>void load()}><RefreshCw size={15}/>{t('common.refresh')}</button></div>
         <div className="admin-users">{users.map(account=><article className="admin-user" key={account.id}>
           <div><strong>{account.email}</strong><span className="tag">{t(account.isAdmin?'admin.role.admin':'admin.role.user')}</span>
-            <p className="form-note">{t('admin.registered',{date:formatDate(account.createdAt)})} · {t(account.confirmed?'admin.confirmed':'admin.unconfirmed')}<br/>{t('admin.lastSignIn',{date:account.lastSignInAt?formatDate(account.lastSignInAt):'—'})}</p></div>
+            <p className="form-note">{t('admin.registered',{date:formatDate(account.createdAt)})} · {t(account.confirmed?'admin.confirmed':'admin.unconfirmed')}<br/>{t('admin.lastSignIn',{date:account.lastSignInAt?formatDate(account.lastSignInAt):'—'})}</p>
+            {account.promoCode&&<p className="form-note">{t('registration.accountCode',{code:account.promoCode})}</p>}</div>
           <div className="button-row"><button className="button secondary small" disabled={busy} onClick={()=>void accountAction('reset_password',account)}><KeyRound size={15}/>{t('admin.recoveryEmail')}</button>
             <button className="button danger small" disabled={busy||account.isAdmin} onClick={()=>{setTarget(account);setConfirmation('');}}><Trash2 size={15}/>{t('common.delete')}</button></div>
         </article>)}</div>
