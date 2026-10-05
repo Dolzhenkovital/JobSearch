@@ -1140,6 +1140,17 @@ select {
   background: #122c2769;
   backdrop-filter: blur(3px);
 }
+.modal-alert {
+  position: sticky;
+  bottom: 0;
+  margin: 0;
+  padding: 13px 28px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #8c302b;
+  background: #fff1ef;
+  border-top: 1px solid #f0d3cf;
+}
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -1307,6 +1318,12 @@ select {
   border: 1px solid #e2e9d8;
   border-radius: 11px;
   padding: 20px;
+}
+.sign-out-confirm {
+  margin: 16px 0 0;
+}
+.sign-out-confirm .checkbox-row {
+  margin: 8px 0 4px;
 }
 .account-line {
   display: flex;
@@ -2519,9 +2536,14 @@ select {
 .button.danger { background: #a2352f; color: white; border-color: #a2352f; }
 .delete-confirmation { border: 1px solid #d9a9a6; background: #fff7f6; padding: 20px; border-radius: 12px; margin-top: 20px; }
 .notice.error { color: #8c302b; background: #fff1ef; }
+/* Each rules version gets its own row, so phones do not split the identifiers being compared. */
+.rules-versions { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0; }
+.rules-versions dd { margin: 0; font-weight: 700; }
 .ai-result { padding: 18px; border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; }
 .ai-result h4 { margin: 0 0 12px; }
 .ai-result pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; }
+/* Quoted document lines and model text may contain long unbroken tokens such as links. */
+.ai-result li { overflow-wrap: anywhere; }
 .ai-result blockquote { margin: 10px 0; padding: 10px 14px; background: var(--soft); border-left: 3px solid var(--green); }
 .requirements { display: grid; gap: 12px; }
 .requirements article { padding: 12px 0; border-top: 1px solid var(--line); }
@@ -2538,4 +2560,20 @@ select {
   .ai-result .section-title-row { align-items: flex-start; flex-direction: column; }
   .ai-panel .button-row > .button { width: 100%; justify-content: center; }
   .requirements .tag { display: table; margin: 7px 0 0; }
+}
+.pipeline-summary strong { margin: 0 0 0 5px; }
+.language-select { display: flex; align-items: center; gap: 6px; color: #6e7f71; font-size: 11px; }
+.language-select select { border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #4b6154; font-size: 11px; padding: 6px 8px; max-width: 132px; }
+.env-badge { margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: #f4d98b; color: #5a4300; font-size: 9px; font-weight: 750; letter-spacing: 0.08em; }
+@media (max-width: 580px) {
+  .breadcrumb-root { display: none; }
+  .topbar { gap: 8px; }
+  .breadcrumb { min-width: 0; }
+  .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .language-select svg { display: none; }
+  .language-select select { font-size: 10px; padding: 5px 4px; max-width: 96px; }
+  .sync-button { max-width: 118px; }
+}
+@media print {
+  .language-select, .env-badge { display: none; }
 }

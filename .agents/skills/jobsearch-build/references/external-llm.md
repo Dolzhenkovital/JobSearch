@@ -20,6 +20,8 @@ GitHub Pages is a public static client. `jobsearch-api` validates the caller wit
 
 `supabase/functions/_shared/llm.ts` owns payloads, schemas, prompts and `RULES_VERSION`. Responses uses `text.format`; Chat Completions uses `response_format`. Default effort omits the parameter. Requests use HTTPS public host checks, no redirects, fixed output caps and a timeout; they do not automatically retry. [Structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [reasoning](https://developers.openai.com/api/docs/guides/reasoning) were checked on 2026-10-02. Host validation is a preflight DNS check, not a network-level egress sandbox.
 
+Pages publishes the client automatically, while the Edge Function is deployed manually. The `status` action therefore returns the deployed `rulesVersion`, and the admin LLM tab warns when it is missing or differs from the client's `RULES_VERSION`. Function changes that keep `RULES_VERSION` are not detected and still need a deployment.
+
 Authenticate the account at the adapter, bind input/report/packet access to that account, and preserve the database ownership/revision checks. Client-supplied IDs alone are not authorization. Keep per-account usage limits, bounded requests, and safe error handling in the adapter. Do not place a management or service-role key in the browser to enable inference.
 
 If a separately authorized user-operated LLM or external endpoint is used instead, document its actual input/output route. The current clipboard prompt is a useful manual fallback; it is not evidence of an integrated external API.
@@ -40,6 +42,8 @@ Define a provider-independent contract and an explicit adapter to the selected A
 Keep source/job text and model output as data. Delimit source inputs and prevent text embedded in an ad or CV from triggering tool actions, file access, account changes, or unrelated transmissions. The generation endpoint does not need employer-submission tools.
 
 Check schema/size, accepted enums, known fact IDs, intended employer/role, and the association with the requested inputs. Validate substantive claims against their actual facts, not merely the existence of a cited ID. Schema validation or a model's own assertion of correctness is not factual verification. Keep the result provisional where evidence is insufficient, and keep human review explicit.
+
+Current validators (`RULES_VERSION` v3): a number in a claim must occur in its cited evidence lines or the run fails. CV and letter lines with numbers found in no evidence line are returned as structured `unsupportedNumbers` data and localized by the interface; the vacancy text never counts as support, and digits grouped by spaces are read as one number there. Numbers and job quotes are compared after presentation-only normalization (separators, spacing, quote/apostrophe glyphs, dashes, invisible format characters). The language guard is a keyword heuristic for English, French, German and Ukrainian: a language name counts only when it stands for the language, not when it describes another noun ("French clients"). A model-reported `excluded` on a non-language requirement is read as `unknown`. Non-numeric entities in drafts are not verified.
 
 ## Save without losing history or edits
 

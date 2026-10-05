@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { workspaceTooLarge } from "./cloud";
+import { storedBytes, WORKSPACE_LIMITS } from "./domain";
 
 const db = new PGlite();
 const alice = "00000000-0000-0000-0000-000000000001";
@@ -100,4 +102,38 @@ describe("workspace migration on PostgreSQL", () => {
     );
     await expect(save(0, "unsigned")).rejects.toThrow("permission denied");
   });
+  it("limits the payload to the size the client computes before saving", async () => {
+    await asUser(alice);
+    const sample = {
+      schemaVersion: 1,
+      text: 'Zoë "quoted" \\ \n\t\u0001 Київ € \u{1F600} \u007f',
+      list: [1, true, null, {}, [], -2.5],
+      nested: { empty: "", deep: { value: 10 } },
+    };
+    const measured = await db.query<{ size: number }>(
+      "select octet_length($1::jsonb::text) as size",
+      [JSON.stringify(sample)],
+    );
+    expect(storedBytes(sample)).toBe(measured.rows[0].size);
+
+    const current = await db.query<{ revision: number }>(
+      "select revision from public.workspaces",
+    );
+    const revision = current.rows[0]?.revision || 0;
+    const payload = (padding: number) => ({
+      schemaVersion: 1,
+      padding: "x".repeat(padding),
+    });
+    const room = WORKSPACE_LIMITS.bytes - storedBytes(payload(0));
+    const push = (padding: number) =>
+      db.query<{ revision: number }>(
+        "select public.save_workspace($1::jsonb, $2::bigint) as revision",
+        [JSON.stringify(payload(padding)), revision],
+      );
+    const refused = await push(room + 1).catch((error: unknown) => error);
+    expect(String((refused as Error).message)).toContain("workspace_size");
+    expect(workspaceTooLarge(refused)).toBe(true);
+    expect(workspaceTooLarge(new TypeError("Failed to fetch"))).toBe(false);
+    expect((await push(room)).rows[0].revision).toBe(revision + 1);
+  }, 30000);
 });

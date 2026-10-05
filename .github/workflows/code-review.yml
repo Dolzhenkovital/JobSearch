@@ -1,0 +1,247 @@
+name: Code review
+
+# Mandatory automated review of every pull request by an external LLM (Codex CLI against an
+# OpenAI-compatible endpoint). The job is a required check: it passes when a review was produced
+# and posted; the findings are advisory and the merge decision stays with the maintainer.
+#
+# Repository settings (Settings -> Secrets and variables -> Actions):
+#   secret   CODEX_TOKEN     API key of the provider                      (required)
+#   secret   CODEX_BASE_URL  OpenAI-compatible base URL, e.g. https://api.openai.com/v1
+#                            (a variable with the same name also works)   (required)
+#   variable CODEX_MODEL     model identifier                             (required)
+#   variable CODEX_WIRE_API  "responses" (default) or "chat"
+#   variable CODE_REVIEW_LANGUAGE  language of the review, default Ukrainian
+#
+# Pull requests from forks and from Dependabot do not receive secrets, so this check fails for
+# them until a maintainer pushes the branch to this repository.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: code-review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  code-review:
+    name: Code review
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      WORK: /tmp/review
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Check the reviewer configuration
+        env:
+          CODEX_TOKEN: ${{ secrets.CODEX_TOKEN }}
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL || vars.CODEX_BASE_URL }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL || secrets.CODEX_MODEL }}
+        run: |
+          missing=""
+          [ -z "$CODEX_TOKEN" ] && missing="$missing CODEX_TOKEN(secret)"
+          [ -z "$CODEX_BASE_URL" ] && missing="$missing CODEX_BASE_URL(secret-or-variable)"
+          [ -z "$CODEX_MODEL" ] && missing="$missing CODEX_MODEL(variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::Code review is mandatory but the external LLM is not configured. Missing:$missing. See docs/ci-cd.md."
+            exit 1
+          fi
+
+      - name: Check out the merge result
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Fetch the exact base and head commits
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags origin "$PR_BASE_REF" "+refs/pull/$PR_NUMBER/head"
+          # The base branch may have advanced since the PR was opened; the three-dot diff below
+          # needs both commits and their merge base.
+          git fetch --no-tags origin "$PR_BASE_SHA" || true
+          git fetch --no-tags origin "$PR_HEAD_SHA" || true
+
+      - name: Collect PR metadata and the reviewable diff
+        id: prmeta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$WORK"
+          gh pr view "$PR_NUMBER" \
+            --json title,body,author,baseRefName,headRefName,baseRefOid,headRefOid,additions,deletions,changedFiles \
+            > "$WORK/pr-meta.json"
+          RANGE="${PR_BASE_SHA}...${PR_HEAD_SHA}"
+
+          # Out of review scope: translated dictionaries (the Ukrainian source stays in; key and
+          # placeholder parity is enforced by the type checker and src/i18n.test.ts) and the lock file.
+          EXCLUDES=(
+            ':(exclude)src/i18n/en.ts'
+            ':(exclude)src/i18n/fr.ts'
+            ':(exclude)src/i18n/de.ts'
+            ':(exclude)package-lock.json'
+          )
+          git diff "$RANGE" -- "${EXCLUDES[@]}" > "$WORK/diff.patch"
+          git diff --stat "$RANGE" -- "${EXCLUDES[@]}" > "$WORK/diff-stat.txt"
+          git diff --name-only "$RANGE" | LC_ALL=C sort > "$WORK/files-all.txt"
+          git diff --name-only "$RANGE" -- "${EXCLUDES[@]}" | LC_ALL=C sort > "$WORK/files-reviewed.txt"
+          LC_ALL=C comm -23 "$WORK/files-all.txt" "$WORK/files-reviewed.txt" > "$WORK/files-excluded.txt"
+
+          if [ ! -s "$WORK/diff.patch" ]; then
+            echo "has_reviewable_diff=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to review: every change is in an excluded file."
+            exit 0
+          fi
+          echo "has_reviewable_diff=true" >> "$GITHUB_OUTPUT"
+
+          DIFF_LINES=$(wc -l < "$WORK/diff.patch")
+          MAX_LINES=12000
+          if [ "$DIFF_LINES" -gt "$MAX_LINES" ]; then
+            head -n "$MAX_LINES" "$WORK/diff.patch" > "$WORK/diff.trunc"
+            printf '\n[... diff truncated at %s of %s lines ...]\n' "$MAX_LINES" "$DIFF_LINES" >> "$WORK/diff.trunc"
+            mv "$WORK/diff.trunc" "$WORK/diff.patch"
+            echo "diff_truncated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "diff_truncated=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "diff_lines=$DIFF_LINES" >> "$GITHUB_OUTPUT"
+          echo "Diff captured: $DIFF_LINES lines"
+
+      # The check is required by the branch rules, so a PR with nothing to review must still
+      # finish green; say so on the PR instead of silently skipping.
+      - name: Note a pull request with nothing to review
+        if: steps.prmeta.outputs.has_reviewable_diff == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo ":fast_forward: **Automated code review skipped** for \`${PR_HEAD_SHA:0:7}\`"
+            echo
+            echo "This pull request changes only files outside the review scope:"
+            echo
+            sed 's/.*/- `&`/' "$WORK/files-excluded.txt"
+          } > "$WORK/skip.md"
+          gh pr comment "$PR_NUMBER" --body-file "$WORK/skip.md"
+
+      - name: Build the review prompt
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        env:
+          DIFF_TRUNCATED: ${{ steps.prmeta.outputs.diff_truncated }}
+          DIFF_LINES: ${{ steps.prmeta.outputs.diff_lines }}
+          REVIEW_LANGUAGE: ${{ vars.CODE_REVIEW_LANGUAGE }}
+          PR_META_FILE: /tmp/review/pr-meta.json
+          DIFF_STAT_FILE: /tmp/review/diff-stat.txt
+          DIFF_FILE: /tmp/review/diff.patch
+          EXCLUDED_FILES: /tmp/review/files-excluded.txt
+          PROMPT_TEMPLATE: .github/code-review-prompt.md
+          PROMPT_OUT: /tmp/review/prompt.md
+        run: python3 .github/scripts/build_review_prompt.py
+
+      # The reviewer reads the workspace; it must not find a token in .git/config.
+      - name: Remove git credentials from the workspace
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        run: git config --local --unset-all http.https://github.com/.extraheader || true
+
+      - name: Install bubblewrap (required by the Codex sandbox)
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+
+      - name: Install Codex CLI (pinned and verified)
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        env:
+          CODEX_VERSION: rust-v0.137.0
+          CODEX_SHA256: d96e88313b95597e9cbb8704f6db16dbb81c07142b08cfb628479ab433696931
+        run: |
+          curl -fsSL -o /tmp/codex.tar.gz \
+            "https://github.com/openai/codex/releases/download/${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz"
+          echo "${CODEX_SHA256}  /tmp/codex.tar.gz" | sha256sum --check --strict
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/codex.tar.gz -C "$HOME/.local/bin"
+          if [ -f "$HOME/.local/bin/codex-x86_64-unknown-linux-musl" ]; then
+            mv "$HOME/.local/bin/codex-x86_64-unknown-linux-musl" "$HOME/.local/bin/codex"
+          fi
+          chmod +x "$HOME/.local/bin/codex"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/codex" --version
+
+      - name: Configure Codex for the external provider
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        env:
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL || vars.CODEX_BASE_URL }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL || secrets.CODEX_MODEL }}
+          CODEX_WIRE_API: ${{ vars.CODEX_WIRE_API || 'responses' }}
+        run: |
+          mkdir -p ~/.codex
+          python3 - <<'PY'
+          import json, os, pathlib
+          quote = json.dumps  # TOML basic strings accept JSON string escaping
+          config = "\n".join([
+              f"model = {quote(os.environ['CODEX_MODEL'])}",
+              'model_provider = "external"',
+              "",
+              "[model_providers.external]",
+              'name = "External LLM"',
+              f"base_url = {quote(os.environ['CODEX_BASE_URL'].rstrip('/'))}",
+              'env_key = "OPENAI_API_KEY"',
+              f"wire_api = {quote(os.environ['CODEX_WIRE_API'])}",
+              "",
+          ])
+          pathlib.Path.home().joinpath(".codex", "config.toml").write_text(config)
+          PY
+
+      - name: Authenticate Codex
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.CODEX_TOKEN }}
+        run: echo "$OPENAI_API_KEY" | codex login --with-api-key
+
+      - name: Run the review
+        if: steps.prmeta.outputs.has_reviewable_diff == 'true'
+        id: review
+        timeout-minutes: 15
+        env:
+          OPENAI_API_KEY: ${{ secrets.CODEX_TOKEN }}
+        run: |
+          # The prompt goes through stdin: a large diff does not fit into one argument.
+          codex exec --skip-git-repo-check --sandbox read-only - \
+            < "$WORK/prompt.md" \
+            > "$WORK/review.md" \
+            2> "$WORK/stderr.log" || status=$?
+          echo "--- codex stderr (tail) ---"
+          tail -40 "$WORK/stderr.log" || true
+          if [ "${status:-0}" -ne 0 ] || [ ! -s "$WORK/review.md" ]; then
+            echo "::error::The reviewer did not produce a review (exit ${status:-0})."
+            exit 1
+          fi
+          echo "Review produced: $(wc -l < "$WORK/review.md") lines"
+
+      - name: Post the review
+        if: steps.review.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "### Automated code review for \`${PR_HEAD_SHA:0:7}\`"
+            echo
+            # GitHub rejects comments above 65536 characters.
+            head -c 60000 "$WORK/review.md"
+          } > "$WORK/comment.md"
+          gh pr comment "$PR_NUMBER" --body-file "$WORK/comment.md"
+          cat "$WORK/review.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report a failed review
+        if: failure() && steps.review.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "The automated code review failed before producing a result, so this required check is red. Run: ${RUN_URL} (step \"Run the review\")."

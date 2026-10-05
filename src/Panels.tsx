@@ -7,12 +7,10 @@ import {
   Download,
   FileText,
   FolderSync,
-  Globe2,
   HardDrive,
   KeyRound,
   LoaderCircle,
   LogOut,
-  Mail,
   Save,
   ShieldCheck,
   SlidersHorizontal,
@@ -24,16 +22,33 @@ import {
   aiPrompt,
   contentVersion,
   createPacket,
+  DOCUMENT_LANGUAGES,
+  MANUAL_SOURCE,
+  MAX_BACKUP_FILE_BYTES,
   MAX_IMPORT_BYTES,
   parseBackup,
   safeUrl,
+  serializeBackup,
 } from "./domain";
+import { useI18n } from "./i18n";
 import { download, Empty, ExternalLink, Field, formatTime, Modal } from "./ui";
 import type { useWorkspace } from "./useWorkspace";
 import type { Job, Packet, Profile, Settings, Store } from "./types";
 
 type Workspace = ReturnType<typeof useWorkspace>;
 type Notify = (message: string) => void;
+// Language names stay in their own language so they are recognizable in any interface.
+const DOCUMENT_LANGUAGE_NAMES: Record<Settings["documentLanguage"], string> = {
+  fr: "Français",
+  en: "English",
+  de: "Deutsch",
+  uk: "Українська",
+};
+const SETTINGS_TABS = [
+  { id: "search", title: "settings.tab.search", icon: SlidersHorizontal },
+  { id: "sync", title: "settings.tab.sync", icon: Cloud },
+  { id: "data", title: "settings.tab.data", icon: HardDrive },
+] as const;
 export function SettingsPanel({
   workspace,
   onClose,
@@ -45,6 +60,7 @@ export function SettingsPanel({
   notify: Notify;
   initialTab?: string;
 }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState(initialTab);
   const accountId = workspace.user?.id || null;
   const [draft, setDraft] = useState<{
@@ -64,6 +80,23 @@ export function SettingsPanel({
     [authMessage, setAuthMessage] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const [restore, setRestore] = useState<Store | null>(null);
+  const [rejected, setRejected] = useState("");
+  // The dialog covers the toast, so a rejected change is also shown inside it.
+  const reject = (error: unknown) => {
+    setRejected((error as Error).message);
+    notify((error as Error).message);
+  };
+  // The open sign-out confirmation: whether to delete this browser's copy, and
+  // whether deleting changes the cloud has not received was explicitly confirmed.
+  const [signOutChoice, setLeaving] = useState<{
+    owner: string;
+    remove: boolean;
+    discard: boolean;
+    unsynced: boolean;
+  } | null>(null);
+  // One account's choices never confirm deleting another account's data.
+  const leaving = signOutChoice?.owner === accountId ? signOutChoice : null;
+  const unsynced = workspace.unsynced || !!leaving?.unsynced;
   const field = (key: keyof Settings, value: string | boolean) =>
     setDraft((previous) => ({
       owner: accountId,
@@ -90,12 +123,36 @@ export function SettingsPanel({
       if (error) throw error;
       setPassword("");
       if (register && !data.session)
-        setAuthMessage(
-          "Перевірте пошту й підтвердьте адресу. Після підтвердження увійдіть тут.",
-        );
-      else notify("Вхід виконано. Завантажуємо ваш простір.");
+        setAuthMessage(t("auth.checkEmail"));
+      else notify(t("auth.signedIn"));
     } catch (error) {
-      setAuthMessage((error as Error).message || "Не вдалося увійти.");
+      setAuthMessage((error as Error).message || t("auth.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function signOut() {
+    if (!leaving) return;
+    setBusy(true);
+    try {
+      const result = await workspace.signOut(leaving.remove, leaving.discard);
+      if (result === "unsynced") {
+        // The stored copy changed after this form was rendered: ask before deleting it.
+        setLeaving({ ...leaving, discard: false, unsynced: true });
+        return;
+      }
+      if (result !== "failed") setLeaving(null);
+      notify(
+        t(
+          result === "failed"
+            ? "auth.signOutFailed"
+            : result === "removed"
+              ? "auth.signedOutRemoved"
+              : result === "kept"
+                ? "auth.signedOutKept"
+                : "auth.signedOut",
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -105,8 +162,8 @@ export function SettingsPanel({
     event.target.value = "";
     if (!file) return;
     try {
-      if (file.size > MAX_IMPORT_BYTES)
-        throw new Error("Максимальний розмір — 5 МБ.");
+      if (file.size > MAX_BACKUP_FILE_BYTES)
+        throw new Error(t("error.fileTooLarge"));
       setRestore(parseBackup(await file.text()));
     } catch (error) {
       notify((error as Error).message);
@@ -114,29 +171,26 @@ export function SettingsPanel({
   }
   return (
     <Modal
-      title="Налаштування"
-      subtitle="Пошук і ваш особистий простір"
+      title={t("settings.title")}
+      subtitle={t("settings.subtitle")}
       onClose={onClose}
+      alert={rejected}
     >
       <div
         className="modal-tabs"
         role="tablist"
-        aria-label="Розділи налаштувань"
+        aria-label={t("settings.tabsAria")}
       >
-        {[
-          ["search", "Пошук", SlidersHorizontal],
-          ["sync", "Синхронізація", Cloud],
-          ["data", "Мої дані", HardDrive],
-        ].map(([id, title, Icon]) => (
+        {SETTINGS_TABS.map(({ id, title, icon: Icon }) => (
           <button
-            key={String(id)}
+            key={id}
             role="tab"
             aria-selected={tab === id}
             className={tab === id ? "active" : ""}
-            onClick={() => setTab(String(id))}
+            onClick={() => setTab(id)}
           >
-            {typeof Icon !== "string" && <Icon size={17} />}
-            <span>{String(title)}</span>
+            <Icon size={17} />
+            <span>{t(title)}</span>
           </button>
         ))}
       </div>
@@ -146,47 +200,50 @@ export function SettingsPanel({
             id="settings-form"
             onSubmit={(event) => {
               event.preventDefault();
-              workspace.update((s) => ({
-                ...s,
-                settings: { ...s.settings, ...changes },
-              }));
-              notify("Налаштування збережено");
+              try {
+                workspace.update((s) => ({
+                  ...s,
+                  settings: { ...s.settings, ...changes },
+                }));
+              } catch (error) {
+                reject(error);
+                return;
+              }
+              notify(t("toast.settingsSaved"));
               onClose();
             }}
           >
             <div className="info-box">
               <SlidersHorizontal size={20} />
-              <p>
-                Налаштуйте пошук під себе. Порожні поля не обмежують результати.
-              </p>
+              <p>{t("settings.search.info")}</p>
             </div>
             <Field
-              label="Місто або регіон"
-              hint="Наприклад: Montréal, Laval або QC. Фільтр перевіряє назву місця в оголошенні."
+              label={t("settings.city.label")}
+              hint={t("settings.city.hint")}
             >
               <input
                 value={settings.city}
                 onChange={(event) => field("city", event.target.value)}
-                placeholder="Де ви хочете працювати?"
+                placeholder={t("settings.city.placeholder")}
                 maxLength={120}
               />
             </Field>
             <Field
-              label="Назви посад"
-              hint="Через кому. Використайте варіанти назв так, як їх пишуть роботодавці."
+              label={t("settings.roles.label")}
+              hint={t("settings.roles.hint")}
             >
               <textarea
                 rows={3}
                 value={settings.roles}
                 onChange={(event) => field("roles", event.target.value)}
-                placeholder="Наприклад: comptable, administrative assistant"
+                placeholder={t("settings.roles.placeholder")}
                 maxLength={1000}
               />
             </Field>
             <div className="form-grid">
               <Field
-                label="Мінімальна оплата, CAD / год"
-                hint="Вакансії без погодинної суми залишаються у списку."
+                label={t("settings.minHourly.label")}
+                hint={t("settings.minHourly.hint")}
               >
                 <input
                   type="number"
@@ -194,19 +251,21 @@ export function SettingsPanel({
                   step="0.5"
                   value={settings.minHourly}
                   onChange={(event) => field("minHourly", event.target.value)}
-                  placeholder="Без обмеження"
+                  placeholder={t("settings.minHourly.placeholder")}
                 />
               </Field>
-              <Field label="Мова нових документів">
+              <Field label={t("settings.documentLanguage")}>
                 <select
                   value={settings.documentLanguage}
                   onChange={(event) =>
                     field("documentLanguage", event.target.value)
                   }
                 >
-                  <option value="fr">Français</option>
-                  <option value="en">English</option>
-                  <option value="uk">Українська</option>
+                  {DOCUMENT_LANGUAGES.map((code) => (
+                    <option key={code} value={code}>
+                      {DOCUMENT_LANGUAGE_NAMES[code]}
+                    </option>
+                  ))}
                 </select>
               </Field>
             </div>
@@ -218,11 +277,9 @@ export function SettingsPanel({
                   field("applyPreferences", event.target.checked)
                 }
               />
-              <span>Застосовувати ці умови до списку вакансій</span>
+              <span>{t("settings.apply")}</span>
             </label>
-            <p className="form-note">
-              Мова вакансії та рівень володіння мовами не впливають на відбір.
-            </p>
+            <p className="form-note">{t("settings.languageNote")}</p>
           </form>
         )}
         {tab === "sync" && (
@@ -231,22 +288,15 @@ export function SettingsPanel({
               <span className="round-icon">
                 <FolderSync size={26} />
               </span>
-              <h3>Один простір на всіх пристроях</h3>
-              <p>
-                Увійдіть з однаковим email на комп’ютері й телефоні. Профіль,
-                обране, заявки та документи синхронізуються.
-              </p>
+              <h3>{t("sync.heading")}</h3>
+              <p>{t("sync.text")}</p>
             </div>
             {!workspace.configured ? (
               <div className="notice">
-                <strong>Завершуємо підключення сховища</strong>
-                <p>
-                  Сайт уже працює. Для синхронізації власник має підключити
-                  безкоштовний проєкт Supabase. До цього зміни залишаються на
-                  цьому пристрої.
-                </p>
+                <strong>{t("sync.unconfigured.title")}</strong>
+                <p>{t("sync.unconfigured.text")}</p>
                 <ExternalLink href="https://github.com/Dolzhenkovital/JobSearch/blob/main/docs/deployment.md">
-                  Інструкція для власника
+                  {t("sync.ownerGuide")}
                 </ExternalLink>
               </div>
             ) : workspace.user ? (
@@ -256,16 +306,20 @@ export function SettingsPanel({
                   <div>
                     <strong>{workspace.user.email}</strong>
                     <p>
-                      {workspace.status === "synced"
-                        ? "Усі зміни синхронізовані"
-                        : workspace.status === "conflict"
-                          ? "Потрібно вибрати версію змін"
-                          : workspace.status === "offline"
-                            ? "Чекаємо на з’єднання"
-                            : "Синхронізація…"}
+                      {t(
+                        workspace.status === "synced"
+                          ? "sync.state.synced"
+                          : workspace.status === "conflict"
+                            ? "sync.state.conflict"
+                            : workspace.status === "offline"
+                              ? "sync.state.offline"
+                              : "sync.syncing",
+                      )}
                     </p>
                     <small>
-                      Останнє оновлення: {formatTime(workspace.lastSync)}
+                      {t("sync.lastUpdate", {
+                        time: formatTime(workspace.lastSync),
+                      })}
                     </small>
                   </div>
                 </div>
@@ -277,24 +331,90 @@ export function SettingsPanel({
                     }}
                   >
                     <FolderSync size={17} />
-                    Оновити
+                    {t("common.refresh")}
                   </button>
-                  <button
-                    className="button ghost"
-                    onClick={async () => {
-                      const { error } = await cloud!.auth.signOut();
-                      if (error) notify("Не вдалося вийти. Спробуйте ще раз.");
-                      else notify("Ви вийшли з акаунта");
-                    }}
-                  >
-                    <LogOut size={17} />
-                    Вийти
-                  </button>
+                  {!leaving && (
+                    <button
+                      className="button ghost"
+                      onClick={() =>
+                        setLeaving({
+                          owner: workspace.user!.id,
+                          remove: false,
+                          discard: false,
+                          unsynced: false,
+                        })
+                      }
+                    >
+                      <LogOut size={17} />
+                      {t("auth.signOut")}
+                    </button>
+                  )}
                 </div>
+                {leaving && (
+                  <div className="notice sign-out-confirm">
+                    <strong>{t("signOut.title")}</strong>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={leaving.remove}
+                        onChange={(event) =>
+                          setLeaving({
+                            ...leaving,
+                            remove: event.target.checked,
+                            discard: false,
+                          })
+                        }
+                      />
+                      <span>{t("signOut.remove")}</span>
+                    </label>
+                    <p>{t("signOut.removeHint")}</p>
+                    {leaving.remove && unsynced && (
+                      <>
+                        <p role="alert">
+                          <strong>{t("signOut.unsynced")}</strong>
+                        </p>
+                        <label className="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={leaving.discard}
+                            onChange={(event) =>
+                              setLeaving({
+                                ...leaving,
+                                discard: event.target.checked,
+                              })
+                            }
+                          />
+                          <span>{t("signOut.discard")}</span>
+                        </label>
+                      </>
+                    )}
+                    <div className="button-row">
+                      <button
+                        className="button primary"
+                        disabled={
+                          busy || (leaving.remove && unsynced && !leaving.discard)
+                        }
+                        onClick={() => {
+                          void signOut();
+                        }}
+                      >
+                        <LogOut size={17} />
+                        {t("auth.signOut")}
+                      </button>
+                      <button
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() => setLeaving(null)}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <form onSubmit={login}>
-                <Field label="Email">
+                <Field label={t("common.email")}>
                   <input
                     autoComplete="email"
                     type="email"
@@ -304,7 +424,7 @@ export function SettingsPanel({
                     placeholder="you@example.com"
                   />
                 </Field>
-                <Field label="Пароль">
+                <Field label={t("auth.password")}>
                   <input
                     autoComplete={
                       register ? "new-password" : "current-password"
@@ -314,9 +434,9 @@ export function SettingsPanel({
                     required
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder={
-                      register ? "Щонайменше 10 символів" : "Ваш пароль"
-                    }
+                    placeholder={t(
+                      register ? "auth.passwordNew" : "auth.passwordCurrent",
+                    )}
                   />
                 </Field>
                 <button className="button primary full-width" disabled={busy}>
@@ -325,7 +445,7 @@ export function SettingsPanel({
                   ) : (
                     <KeyRound size={18} />
                   )}{" "}
-                  {register ? "Створити акаунт" : "Увійти"}
+                  {t(register ? "auth.create" : "auth.signIn")}
                 </button>
                 <button
                   type="button"
@@ -335,53 +455,41 @@ export function SettingsPanel({
                     setAuthMessage("");
                   }}
                 >
-                  {register
-                    ? "Уже є акаунт? Увійти"
-                    : "Перший вхід? Створити акаунт"}
+                  {t(register ? "auth.haveAccount" : "auth.first")}
                 </button>
                 {authMessage && (
                   <div className="notice" role="status">
                     {authMessage}
                   </div>
                 )}
-                <small className="muted">
-                  Після входу відкриється ваша хмарна копія. Новий акаунт
-                  збереже поточний локальний простір.
-                </small>
+                <small className="muted">{t("auth.note")}</small>
               </form>
             )}
             <div className="privacy-note">
               <ShieldCheck size={17} />
-              <span>
-                Особисті дані доступні лише вашому акаунту. Публічний сайт не
-                містить вашого CV.
-              </span>
+              <span>{t("sync.privacy")}</span>
             </div>
           </>
         )}
         {tab === "data" && (
           <>
-            <h3>Резервна копія</h3>
-            <p className="muted">
-              Збережіть профіль, налаштування, вакансії та документи одним
-              файлом. Копія містить особисті дані — тримайте її в безпечному
-              місці.
-            </p>
+            <h3>{t("data.title")}</h3>
+            <p className="muted">{t("data.text")}</p>
             <div className="data-actions">
               <button
                 className="data-action"
                 onClick={() =>
                   download(
                     `JobSearch-backup-${new Date().toISOString().slice(0, 10)}.json`,
-                    JSON.stringify(workspace.store, null, 2),
+                    serializeBackup(workspace.store),
                     "application/json",
                   )
                 }
               >
                 <Download size={22} />
                 <span>
-                  <strong>Завантажити копію</strong>
-                  <small>Усі дані поточного простору</small>
+                  <strong>{t("common.downloadCopy")}</strong>
+                  <small>{t("data.download.detail")}</small>
                 </span>
                 <ArrowRight size={19} />
               </button>
@@ -391,8 +499,8 @@ export function SettingsPanel({
               >
                 <Upload size={22} />
                 <span>
-                  <strong>Відновити з файлу</strong>
-                  <small>Резервна копія JobSearch, до 5 МБ</small>
+                  <strong>{t("data.restore")}</strong>
+                  <small>{t("data.restore.detail")}</small>
                 </span>
                 <ArrowRight size={19} />
               </button>
@@ -406,12 +514,13 @@ export function SettingsPanel({
             />
             {restore && (
               <div className="notice">
-                <strong>Відновити цю копію?</strong>
+                <strong>{t("data.restoreConfirm.title")}</strong>
                 <p>
-                  Вакансій: {restore.jobs.length}. Заявок:{" "}
-                  {Object.keys(restore.applications).length}. Документів:{" "}
-                  {restore.packets.length}. Поточні дані буде замінено, а після
-                  входу — синхронізовано.
+                  {t("data.restoreConfirm.text", {
+                    jobs: restore.jobs.length,
+                    applications: Object.keys(restore.applications).length,
+                    packets: restore.packets.length,
+                  })}
                 </p>
                 <div className="button-row">
                   <button
@@ -419,33 +528,33 @@ export function SettingsPanel({
                     onClick={() => {
                       download(
                         `JobSearch-before-restore-${Date.now()}.json`,
-                        JSON.stringify(workspace.store, null, 2),
+                        serializeBackup(workspace.store),
                         "application/json",
                       );
-                      workspace.update(() => restore);
+                      try {
+                        workspace.update(() => restore);
+                        setRejected("");
+                        notify(t("toast.restored"));
+                      } catch (error) {
+                        reject(error);
+                      }
                       setRestore(null);
-                      notify(
-                        "Копію відновлено. Попередню версію завантажено окремо.",
-                      );
                     }}
                   >
-                    Відновити
+                    {t("common.restore")}
                   </button>
                   <button
                     className="button secondary"
                     onClick={() => setRestore(null)}
                   >
-                    Скасувати
+                    {t("common.cancel")}
                   </button>
                 </div>
               </div>
             )}
             <div className="info-box">
               <HardDrive size={20} />
-              <p>
-                Без входу дані доступні лише у цьому браузері. Очищення даних
-                браузера видаляє локальну копію.
-              </p>
+              <p>{t("data.info")}</p>
             </div>
           </>
         )}
@@ -453,16 +562,16 @@ export function SettingsPanel({
       <footer className="modal-footer">
         <span>
           <ShieldCheck size={15} />
-          Ваш приватний простір
+          {t("settings.footer")}
         </span>
         {tab === "search" ? (
           <button type="submit" form="settings-form" className="button primary">
             <Check size={17} />
-            Зберегти
+            {t("common.save")}
           </button>
         ) : (
           <button className="button secondary" onClick={onClose}>
-            Готово
+            {t("common.done")}
           </button>
         )}
       </footer>
@@ -479,6 +588,7 @@ export function ProfilePanel({
   onSave: (value: Profile) => void;
   notify: Notify;
 }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(profile);
   const fileInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -490,8 +600,7 @@ export function ProfilePanel({
     if (!file) return;
     setImporting(true);
     try {
-      if (file.size > MAX_IMPORT_BYTES)
-        throw new Error("Максимальний розмір CV — 5 МБ.");
+      if (file.size > MAX_IMPORT_BYTES) throw new Error(t("error.cvMaxSize"));
       let text: string;
       if (/\.docx$/i.test(file.name)) {
         const mammoth = await import("mammoth");
@@ -501,15 +610,11 @@ export function ProfilePanel({
           })
         ).value;
       } else if (/\.txt$/i.test(file.name)) text = await file.text();
-      else
-        throw new Error(
-          "Виберіть DOCX або TXT. Текст із PDF можна вставити у поле CV.",
-        );
-      if (text.length > 200000)
-        throw new Error("Забагато тексту для одного CV.");
-      if (!text.trim()) throw new Error("У файлі не знайдено тексту.");
+      else throw new Error(t("error.cvType"));
+      if (text.length > 200000) throw new Error(t("error.cvTooLong"));
+      if (!text.trim()) throw new Error(t("error.cvEmpty"));
       change("cv", text);
-      notify("Текст CV прочитано. Перевірте його й збережіть профіль.");
+      notify(t("toast.cvImported"));
     } catch (error) {
       notify((error as Error).message);
     } finally {
@@ -527,30 +632,32 @@ export function ProfilePanel({
       >
         <div className="section-heading">
           <div>
-            <h2>Ваш професійний профіль</h2>
-            <p>Факти, на які спиратимуться ваші документи.</p>
+            <h2>{t("profile.title")}</h2>
+            <p>{t("profile.subtitle")}</p>
           </div>
-          <span className="soft-label">Версія {profile.version}</span>
+          <span className="soft-label">
+            {t("profile.version", { version: profile.version })}
+          </span>
         </div>
         <div className="form-grid">
-          <Field label="Ім’я та прізвище">
+          <Field label={t("profile.name.label")}>
             <input
               value={draft.name}
               autoComplete="name"
               onChange={(event) => change("name", event.target.value)}
-              placeholder="Як вас представляти роботодавцю"
+              placeholder={t("profile.name.placeholder")}
               maxLength={200}
             />
           </Field>
-          <Field label="Професійний заголовок">
+          <Field label={t("profile.headline.label")}>
             <input
               value={draft.headline}
               onChange={(event) => change("headline", event.target.value)}
-              placeholder="Ваша спеціальність або напрямок"
+              placeholder={t("profile.headline.placeholder")}
               maxLength={300}
             />
           </Field>
-          <Field label="Email">
+          <Field label={t("common.email")}>
             <input
               type="email"
               autoComplete="email"
@@ -559,7 +666,7 @@ export function ProfilePanel({
               placeholder="you@example.com"
             />
           </Field>
-          <Field label="Телефон">
+          <Field label={t("profile.phone")}>
             <input
               type="tel"
               autoComplete="tel"
@@ -570,18 +677,18 @@ export function ProfilePanel({
             />
           </Field>
         </div>
-        <Field label="Коротко про ваш досвід">
+        <Field label={t("profile.summary.label")}>
           <textarea
             rows={3}
             value={draft.summary}
             onChange={(event) => change("summary", event.target.value)}
-            placeholder="Кілька речень про досвід, сильні сторони та результати."
+            placeholder={t("profile.summary.placeholder")}
             maxLength={10000}
           />
         </Field>
         <Field
-          label="Підтверджені навички"
-          hint="Через кому. Підсвічуємо точні текстові збіги з вакансією — це підказка, а не оцінка шансів."
+          label={t("profile.skills.label")}
+          hint={t("profile.skills.hint")}
         >
           <input
             value={draft.skills}
@@ -591,7 +698,7 @@ export function ProfilePanel({
           />
         </Field>
         <div className="cv-heading">
-          <h3>Ваше CV</h3>
+          <h3>{t("profile.cv.title")}</h3>
           <button
             type="button"
             className="button secondary small"
@@ -603,7 +710,7 @@ export function ProfilePanel({
             ) : (
               <Upload size={16} />
             )}
-            Імпортувати DOCX / TXT
+            {t("profile.cv.import")}
           </button>
         </div>
         <input
@@ -614,25 +721,23 @@ export function ProfilePanel({
           onChange={importCv}
         />
         <Field
-          label="Текст CV"
-          hint="Файл обробляється у браузері. Зберігається витягнутий текст, без оригінального оформлення."
+          label={t("profile.cv.label")}
+          hint={t("profile.cv.hint")}
         >
           <textarea
             className="cv-input"
             rows={15}
             value={draft.cv}
             onChange={(event) => change("cv", event.target.value)}
-            placeholder="Вставте повний текст CV або імпортуйте документ…"
+            placeholder={t("profile.cv.placeholder")}
             maxLength={200000}
           />
         </Field>
         <div className="form-bottom">
-          <span className="muted">
-            Зміни набудуть чинності після збереження.
-          </span>
+          <span className="muted">{t("profile.saveNote")}</span>
           <button className="button primary">
             <Save size={17} />
-            Зберегти профіль
+            {t("profile.save")}
           </button>
         </div>
       </form>
@@ -641,30 +746,24 @@ export function ProfilePanel({
           <span className="round-icon">
             <ShieldCheck size={24} />
           </span>
-          <h3>Досвід залишається вашим</h3>
-          <p>
-            Адаптуємо акценти під вакансію. Посади, дати, освіту й досягнення
-            зберігаємо такими, як ви їх підтвердили.
-          </p>
+          <h3>{t("guide.title")}</h3>
+          <p>{t("guide.text")}</p>
           <div className="guide-step">
             <Check size={17} />
-            <span>Один актуальний профіль</span>
+            <span>{t("guide.step1")}</span>
           </div>
           <div className="guide-step">
             <Check size={17} />
-            <span>Окремі документи для кожної заявки</span>
+            <span>{t("guide.step2")}</span>
           </div>
           <div className="guide-step">
             <Check size={17} />
-            <span>Перевірка перед надсиланням</span>
+            <span>{t("guide.step3")}</span>
           </div>
         </div>
         <div className="small-tip">
           <Sparkles size={19} />
-          <p>
-            Додайте конкретні результати з вашого досвіду. Це допоможе
-            підготувати переконливу заявку.
-          </p>
+          <p>{t("guide.tip")}</p>
         </div>
       </aside>
     </div>
@@ -674,9 +773,11 @@ export function ProfilePanel({
 export function JobForm({
   onSave,
   onClose,
+  alert,
 }: {
-  onSave: (job: Job) => void;
+  onSave: (job: Job) => boolean;
   onClose: () => void;
+  alert?: string;
 }) {
   const [draft, setDraft] = useState({
     title: "",
@@ -687,14 +788,16 @@ export function JobForm({
     description: "",
     full: false,
   });
+  const { t } = useI18n();
   const [error, setError] = useState("");
-  const field = (key: string, value: string | boolean) =>
+  const field = (key: keyof typeof draft, value: string | boolean) =>
     setDraft((p) => ({ ...p, [key]: value }));
   return (
     <Modal
-      title="Додати вакансію"
-      subtitle="Збережіть оголошення з будь-якого майданчика"
+      title={t("job.add")}
+      subtitle={t("jobForm.subtitle")}
       onClose={onClose}
+      alert={alert}
     >
       <form
         onSubmit={(event) => {
@@ -702,22 +805,22 @@ export function JobForm({
           setError("");
           const url = draft.url ? safeUrl(draft.url) : "";
           if (draft.url && !url) {
-            setError("Перевірте посилання: потрібне http:// або https://.");
+            setError(t("error.url"));
             return;
           }
           if (!draft.title.trim() || !draft.employer.trim()) {
-            setError("Вкажіть назву посади та роботодавця.");
+            setError(t("error.titleEmployer"));
             return;
           }
           if (draft.full && !draft.description.trim()) {
-            setError("Додайте повний текст вакансії.");
+            setError(t("error.fullText"));
             return;
           }
           const now = new Date().toISOString();
           const jb = url.match(
             /^https:\/\/(?:www\.)?jobbank\.gc\.ca\/jobsearch\/jobposting\/(\d+)/,
           );
-          onSave({
+          const saved = onSave({
             id: jb
               ? `jobbank:${jb[1]}`
               : `manual:${contentVersion(url || `${draft.title}|${draft.employer}|${draft.location}`)}`,
@@ -726,7 +829,7 @@ export function JobForm({
             location: draft.location,
             salary: draft.salary,
             url,
-            source: jb ? "Job Bank" : "Додано вручну",
+            source: jb ? "Job Bank" : MANUAL_SOURCE,
             description: draft.description,
             completeness: draft.full ? "full" : "snippet",
             publishedAt: null,
@@ -734,40 +837,41 @@ export function JobForm({
             checkedAt: now,
             availability: "unknown",
           });
-          onClose();
+          // Keep the form open when the workspace rejects the job, so the text is not lost.
+          if (saved) onClose();
         }}
       >
         <div className="modal-body">
-          <Field label="Назва посади *">
+          <Field label={t("jobForm.title.label")}>
             <input
               autoFocus
               required
               value={draft.title}
               onChange={(e) => field("title", e.target.value)}
               maxLength={300}
-              placeholder="Назва з оголошення"
+              placeholder={t("jobForm.title.placeholder")}
             />
           </Field>
           <div className="form-grid">
-            <Field label="Роботодавець *">
+            <Field label={t("jobForm.employer.label")}>
               <input
                 required
                 value={draft.employer}
                 onChange={(e) => field("employer", e.target.value)}
                 maxLength={300}
-                placeholder="Назва компанії"
+                placeholder={t("jobForm.employer.placeholder")}
               />
             </Field>
-            <Field label="Місто / регіон">
+            <Field label={t("jobForm.location.label")}>
               <input
                 value={draft.location}
                 onChange={(e) => field("location", e.target.value)}
                 maxLength={300}
-                placeholder="Наприклад: Laval, QC"
+                placeholder={t("jobForm.location.placeholder")}
               />
             </Field>
           </div>
-          <Field label="Посилання на оригінал">
+          <Field label={t("jobForm.url.label")}>
             <input
               type="url"
               value={draft.url}
@@ -776,20 +880,20 @@ export function JobForm({
               maxLength={4000}
             />
           </Field>
-          <Field label="Оплата, як в оголошенні">
+          <Field label={t("jobForm.salary.label")}>
             <input
               value={draft.salary}
               onChange={(e) => field("salary", e.target.value)}
-              placeholder="Наприклад: $25–30 hourly"
+              placeholder={t("jobForm.salary.placeholder")}
               maxLength={300}
             />
           </Field>
-          <Field label="Опис вакансії">
+          <Field label={t("details.description")}>
             <textarea
               rows={8}
               value={draft.description}
               onChange={(e) => field("description", e.target.value)}
-              placeholder="Обов’язки, вимоги та умови роботи…"
+              placeholder={t("jobForm.description.placeholder")}
               maxLength={200000}
             />
           </Field>
@@ -799,7 +903,7 @@ export function JobForm({
               checked={draft.full}
               onChange={(e) => field("full", e.target.checked)}
             />
-            <span>Я додав(-ла) повний опис, включно з вимогами</span>
+            <span>{t("jobForm.full")}</span>
           </label>
           {error && (
             <p className="inline-error" role="alert">
@@ -809,11 +913,11 @@ export function JobForm({
         </div>
         <div className="modal-footer">
           <button type="button" className="button secondary" onClick={onClose}>
-            Скасувати
+            {t("common.cancel")}
           </button>
           <button className="button primary">
             <Check size={17} />
-            Додати вакансію
+            {t("job.add")}
           </button>
         </div>
       </form>
@@ -835,11 +939,12 @@ export function DocumentsPanel({
   jobs: Job[];
   profile: Profile;
   settings: Settings;
-  onUpdate: (p: Packet) => void;
+  onUpdate: (p: Packet) => boolean;
   onPrepare: () => void;
   notify: Notify;
   onPrint: (p: Packet) => void;
 }) {
+  const { t } = useI18n();
   const [selected, setSelected] = useState(packets[0]?.id || "");
   const [activeDoc, setActiveDoc] = useState<"cv" | "letter">("cv");
   const [exporting, setExporting] = useState(false);
@@ -877,11 +982,9 @@ export function DocumentsPanel({
         `JobSearch-${activeDoc}-${packet.id.slice(0, 8)}.docx`,
         await Packer.toBlob(document),
       );
-      notify(
-        "DOCX завантажено. Перевірте остаточну верстку перед надсиланням.",
-      );
+      notify(t("toast.docx"));
     } catch {
-      notify("Не вдалося створити DOCX. Спробуйте текстовий файл.");
+      notify(t("toast.docxFailed"));
     } finally {
       setExporting(false);
     }
@@ -891,11 +994,11 @@ export function DocumentsPanel({
       <div className="surface">
         <Empty
           icon={<FileText size={31} />}
-          title="Кожній вакансії — своя заявка"
-          text="Додайте CV у профіль, відкрийте вакансію з повним описом і натисніть «Підготувати документи»."
+          title={t("docs.empty.title")}
+          text={t("docs.empty.text")}
         >
           <button className="button primary" onClick={onPrepare}>
-            Перейти до вакансій
+            {t("docs.empty.button")}
             <ArrowRight size={17} />
           </button>
         </Empty>
@@ -908,7 +1011,7 @@ export function DocumentsPanel({
     <div className="documents-layout">
       <aside className="packet-list surface">
         <h3>
-          Мої пакети <span>{packets.length}</span>
+          {t("docs.myPackets")} <span>{packets.length}</span>
         </h3>
         {packets.map((p) => (
           <button
@@ -921,7 +1024,7 @@ export function DocumentsPanel({
               <strong>{p.title}</strong>
               <small>{p.employer}</small>
               <em>
-                {p.approvedAt ? "Перевірено вами" : "Чернетка"} ·{" "}
+                {t(p.approvedAt ? "docs.verifiedByYou" : "docs.draft")} ·{" "}
                 {formatTime(p.createdAt)}
               </em>
             </span>
@@ -935,29 +1038,20 @@ export function DocumentsPanel({
             <p>{packet.employer}</p>
           </div>
           <span className={`soft-label ${packet.approvedAt ? "green" : ""}`}>
-            {packet.approvedAt ? "Перевірено" : "Чернетка"}
+            {t(packet.approvedAt ? "docs.verified" : "docs.draft")}
           </span>
         </div>
         {packet.frozenAt && (
           <div className="notice">
-            Знімок документів на момент позначки «Подано» (
-            {formatTime(packet.frozenAt)}). Текст захищено від змін. Для нової
-            версії відкрийте вакансію та підготуйте новий пакет.
+            {t("docs.frozen", { time: formatTime(packet.frozenAt) })}
           </div>
         )}
         {outdated && (
-          <div className="notice">
-            Профіль або вакансія змінилися після створення цього пакета.
-            Перевірте документи або створіть нову версію.
-          </div>
+          <div className="notice">{t("docs.outdated")}</div>
         )}
         <div className="info-box">
           <Sparkles size={20} />
-          <p>
-            {packet.llmRunId
-              ? 'Цей пакет адаптовано зовнішнім LLM. Перевірте кожне твердження, дати, кваліфікації та остаточну верстку. Джерела й історія запиту доступні у вакансії.'
-              : 'Пакет починається з вашого вихідного CV та базового листа. У вакансії можна запустити «Адаптувати CV та лист» через налаштований LLM або скопіювати запит для власного помічника.'}
-          </p>
+          <p>{t(packet.llmRunId ? "docs.info.llm" : "docs.info.base")}</p>
         </div>
         <div className="document-toolbar">
           <div className="segmented">
@@ -971,7 +1065,7 @@ export function DocumentsPanel({
               className={activeDoc === "letter" ? "active" : ""}
               onClick={() => setActiveDoc("letter")}
             >
-              Lettre / лист
+              {t("docs.tab.letter")}
             </button>
           </div>
           <button
@@ -983,28 +1077,22 @@ export function DocumentsPanel({
                 await navigator.clipboard.writeText(
                   aiPrompt(job, profile, settings.documentLanguage),
                 );
-                notify(
-                  "Запит скопійовано. Перевірте, які дані надсилаєте обраному AI-сервісу.",
-                );
+                notify(t("toast.promptCopied"));
               } catch {
                 download(
                   "JobSearch-AI-request.txt",
                   aiPrompt(job, profile, settings.documentLanguage),
                 );
-                notify("Запит завантажено у файл.");
+                notify(t("toast.promptDownloaded"));
               }
             }}
           >
             <Sparkles size={16} />
-            Запит для AI
+            {t("docs.aiPrompt")}
           </button>
         </div>
         <textarea
-          aria-label={
-            activeDoc === "cv"
-              ? "Текст адаптованого CV"
-              : "Текст супровідного листа"
-          }
+          aria-label={t(activeDoc === "cv" ? "docs.cvAria" : "docs.letterAria")}
           className="document-text"
           readOnly={!!packet.frozenAt}
           value={packet[activeDoc]}
@@ -1024,7 +1112,7 @@ export function DocumentsPanel({
             onClick={docxExport}
           >
             <Download size={16} />
-            {exporting ? "Готуємо…" : "DOCX"}
+            {exporting ? t("docs.exporting") : "DOCX"}
           </button>
           <button
             className="button secondary small"
@@ -1038,7 +1126,7 @@ export function DocumentsPanel({
             className="button secondary small"
             onClick={() => onPrint(packet)}
           >
-            Друк / PDF
+            {t("docs.print")}
           </button>
           <button
             className="button primary small approve-button"
@@ -1046,20 +1134,15 @@ export function DocumentsPanel({
               !!packet.frozenAt || !packet.cv.trim() || !packet.letter.trim()
             }
             onClick={() => {
-              onUpdate({ ...packet, approvedAt: new Date().toISOString() });
-              notify(
-                "Пакет позначено як перевірений вами. Заявку ще не надіслано.",
-              );
+              if (onUpdate({ ...packet, approvedAt: new Date().toISOString() }))
+                notify(t("toast.packetApproved"));
             }}
           >
-            <CheckCheck size={17} />Я перевірив(-ла)
+            <CheckCheck size={17} />
+            {t("docs.approve")}
           </button>
         </div>
-        <p className="form-note">
-          Текст зберігається під час редагування. DOCX має просте оформлення;
-          остаточну верстку перевірте у Word або перед друком. Позначка
-          «перевірено» не означає подання заявки.
-        </p>
+        <p className="form-note">{t("docs.note")}</p>
       </section>
     </div>
   );

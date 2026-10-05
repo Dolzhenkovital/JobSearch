@@ -52,7 +52,7 @@ Preparing files or drafting a follow-up does not authorize sending messages or a
 
 ## Verify behavior that matters
 
-For related application changes, run `npm test`, `python -m unittest discover -s scripts -p "test_*.py"`, and `npm run build`. After UI changes, inspect desktop and mobile browser behavior. For synchronization or database changes, use the ownership/conflict checks in the implementation guide; mocked lifecycle tests and local PostgreSQL checks do not establish a live cross-device result.
+For related application changes, run `npm run lint`, `npm run typecheck`, `npm test`, `python -m unittest discover -s scripts -p "test_*.py"`, `npm run build`, and `npm run test:smoke`. Deliver through a pull request into `stage` and promote `stage` to `main`; [the CI/CD guide](../../../docs/ci-cd.md) lists the required checks. After UI changes, inspect desktop and mobile browser behavior. For synchronization or database changes, use the ownership/conflict checks in the implementation guide; mocked lifecycle tests and local PostgreSQL checks do not establish a live cross-device result.
 
 Choose checks for the slice being changed: repeated imports do not duplicate jobs, source failures remain distinguishable from empty results, missing data remains unknown, language does not affect ranking, evidence supports document claims, and a ready packet refers to the intended vacancy and profile versions. Use synthetic or redacted fixtures in Git.
 

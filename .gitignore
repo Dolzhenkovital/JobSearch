@@ -30,4 +30,5 @@ Thumbs.db
 /public/jobs.json
 /test-results/
 /playwright-report/
+/.claude/
 *.tsbuildinfo

@@ -5,13 +5,47 @@ import {
   fetchRemote,
   pushRemote,
   syncDecision,
+  workspaceTooLarge,
   type Remote,
 } from "./cloud";
-import { initialStore, parseBackup, STORAGE_KEY } from "./domain";
+import {
+  assertStorable,
+  contentVersion,
+  initialStore,
+  STORAGE_KEY,
+  validateStore,
+} from "./domain";
+import { t } from "./i18n";
 import type { Store } from "./types";
 
 type Cache = { store: Store; revision: number; dirty: boolean };
+/**
+ * `unsynced`: nothing happened, deleting unsynced changes needs a confirmation.
+ * `kept`: signed out, but the local copy stayed because it could not be deleted safely.
+ */
+export type SignOutResult =
+  | "signedOut"
+  | "removed"
+  | "kept"
+  | "unsynced"
+  | "failed";
 const cacheKey = (id: string | null) => `${STORAGE_KEY}:${id || "guest"}`;
+/** Keep the exact damaged original once: read() runs several times per page load. */
+function preserve(id: string | null, raw: string) {
+  const prefix = `${cacheKey(id)}:recovery:`;
+  // Earlier builds added a time-keyed copy on every failed read; drop those duplicates too.
+  const copies = Object.keys(localStorage).filter(
+    (key) => key.startsWith(prefix) && localStorage.getItem(key) === raw,
+  );
+  copies.slice(1).forEach((key) => localStorage.removeItem(key));
+  if (copies.length) return;
+  const key = prefix + contentVersion(raw);
+  // A hash collision with other content must not replace that earlier copy.
+  localStorage.setItem(
+    localStorage.getItem(key) === null ? key : `${key}:${Date.now()}`,
+    raw,
+  );
+}
 function read(id: string | null): Cache {
   const raw = localStorage.getItem(cacheKey(id));
   if (!raw) return { store: initialStore(), revision: 0, dirty: false };
@@ -22,17 +56,33 @@ function read(id: string | null): Cache {
       value.revision < 0 ||
       typeof value.dirty !== "boolean"
     )
-      throw new Error("Некоректна версія простору.");
+      throw new Error(t("error.workspaceVersion"));
     return {
-      store: parseBackup(JSON.stringify(value.store)),
+      store: validateStore(value.store),
       revision: value.revision,
       dirty: value.dirty,
     };
   } catch {
     // Preserve the exact original before a later edit can replace a damaged cache.
-    localStorage.setItem(`${cacheKey(id)}:recovery:${Date.now()}`, raw);
-    throw new Error("Не вдалося прочитати збережений простір.");
+    preserve(id, raw);
+    throw new Error(t("error.workspaceRead"));
   }
+}
+/** Whether an account's stored cache holds changes the cloud has not received. */
+function storedUnsynced(id: string): boolean {
+  try {
+    return read(id).dirty;
+  } catch {
+    // An unreadable cache may hold unsynced work: treat it as such.
+    return true;
+  }
+}
+/** Delete an account's cache together with its conflict backup and recovery copies. */
+function forget(id: string) {
+  const key = cacheKey(id);
+  for (const name of Object.keys(localStorage))
+    if (name === key || name.startsWith(`${key}:`))
+      localStorage.removeItem(name);
 }
 export function useWorkspace() {
   const [error, setError] = useState("");
@@ -53,21 +103,43 @@ export function useWorkspace() {
     owner = useRef<string | null>(null),
     busy = useRef(false),
     paused = useRef(false),
-    epoch = useRef(0);
+    epoch = useRef(0),
+    // True while the signed-in account shows guest data that its own cache does not hold yet.
+    adopting = useRef(false),
+    connectTo = useRef<(next: User | null) => void>(() => {});
   const persist = useCallback((value: Cache) => {
     live.current = value;
     setCache(value);
     try {
       localStorage.setItem(cacheKey(owner.current), JSON.stringify(value));
     } catch {
-      setError(
-        "Браузер не зміг зберегти зміни. Зробіть резервну копію у налаштуваннях.",
-      );
+      setError(t("workspace.saveFailed"));
+      return;
     }
+    if (!adopting.current) return;
+    adopting.current = false;
+    // The account's own cache now holds the adopted guest data, so the guest copy
+    // is released: it must not reappear after sign-out or reach another account.
+    // A cloud copy that took precedence (not dirty) leaves the guest data untouched.
+    if (value.dirty) localStorage.removeItem(cacheKey(null));
   }, []);
+  /** Apply a change, or throw a translated error and keep the workspace as it was. */
   const update = useCallback(
     (fn: (store: Store) => Store) => {
-      persist({ ...live.current, store: fn(live.current.store), dirty: true });
+      const current = live.current.store;
+      const store = fn(current);
+      try {
+        // A state that reading rejects would lock this workspace on every device.
+        assertStorable(store, current);
+      } catch (failure) {
+        throw new Error(
+          t("workspace.changeRejected", {
+            reason: (failure as Error).message,
+          }),
+          { cause: failure },
+        );
+      }
+      persist({ ...live.current, store, dirty: true });
       if (owner.current) setStatus("syncing");
     },
     [persist],
@@ -94,9 +166,7 @@ export function useWorkspace() {
           setConflict(remote);
           setStatus("conflict");
         } else
-          throw new Error(
-            "Хмарну копію змінено. Збережіть резервну копію перед повторним входом.",
-          );
+          throw new Error(t("error.cloudChanged"));
       } else if (decision === "pull") {
         if (remote)
           persist({
@@ -138,7 +208,11 @@ export function useWorkspace() {
       } else {
         setStatus("offline");
         setError(
-          "Синхронізація недоступна. Локальні зміни збережені; спробуємо знову.",
+          t(
+            workspaceTooLarge(failure)
+              ? "workspace.tooLarge"
+              : "workspace.syncUnavailable",
+          ),
         );
       }
     } finally {
@@ -150,9 +224,7 @@ export function useWorkspace() {
     try {
       read(null);
     } catch {
-      setError(
-        "Локальна копія пошкоджена. Її не перезаписано. Відновіть резервну копію через налаштування.",
-      );
+      setError(t("workspace.localCorrupted"));
     }
     if (!cloud) return;
     let disposed = false;
@@ -166,6 +238,7 @@ export function useWorkspace() {
       epoch.current++;
       busy.current = false;
       paused.current = false;
+      adopting.current = false;
       setConflict(null);
       owner.current = next?.id || null;
       setUser(next);
@@ -173,8 +246,10 @@ export function useWorkspace() {
         let stored = read(owner.current);
         // Guest data is adopted only when this account has no local cache. The
         // initial remote read decides whether an existing cloud copy takes precedence.
-        if (next && !localStorage.getItem(cacheKey(next.id)))
+        if (next && !localStorage.getItem(cacheKey(next.id))) {
           stored = { store: read(null).store, revision: 0, dirty: false };
+          adopting.current = true;
+        }
         live.current = stored;
         setCache(stored);
         if (!next) {
@@ -192,9 +267,7 @@ export function useWorkspace() {
           .catch(() => {
             if (generation === epoch.current) {
               setStatus("offline");
-              setError(
-                "Не вдалося відкрити хмарну копію. Зміни залишаються на пристрої.",
-              );
+              setError(t("workspace.cloudOpenFailed"));
             }
           });
       } catch {
@@ -203,12 +276,11 @@ export function useWorkspace() {
         live.current = empty;
         setCache(empty);
         paused.current = true;
-        setError(
-          "Збережений простір не вдалося прочитати. Початкову копію збережено для відновлення; синхронізацію призупинено.",
-        );
+        setError(t("workspace.readFailed"));
         setStatus("offline");
       }
     };
+    connectTo.current = connect;
     const {
       data: { subscription },
     } = cloud.auth.onAuthStateChange((_event, session) => {
@@ -250,7 +322,7 @@ export function useWorkspace() {
         JSON.stringify(live.current),
       );
     } catch {
-      setError("Не вдалося створити копію. Спочатку експортуйте дані.");
+      setError(t("workspace.backupFailed"));
       return;
     }
     persist(
@@ -262,6 +334,35 @@ export function useWorkspace() {
     setConflict(null);
     void sync();
   };
+  const signOut = useCallback(
+    async (
+      removeLocal: boolean,
+      discardUnsynced = false,
+    ): Promise<SignOutResult> => {
+      const userId = owner.current;
+      if (!cloud || !userId) return "failed";
+      const unsynced = () =>
+        (owner.current === userId && live.current.dirty) ||
+        storedUnsynced(userId);
+      // Unsynced changes exist only in this browser: deleting them needs an explicit confirmation.
+      if (removeLocal && !discardUnsynced && unsynced()) return "unsynced";
+      const { error } = await cloud.auth.signOut();
+      if (error) return "failed";
+      if (!removeLocal) return "signedOut";
+      // An edit or another tab may have changed the cache while the request was pending.
+      const keep = !discardUnsynced && unsynced();
+      // Leave the account first so that no later write can recreate its cache.
+      connectTo.current(null);
+      if (keep || owner.current === userId) return "kept";
+      try {
+        forget(userId);
+      } catch {
+        return "kept";
+      }
+      return "removed";
+    },
+    [],
+  );
   return {
     store: cache.store,
     update,
@@ -270,6 +371,9 @@ export function useWorkspace() {
     conflict,
     resolve,
     sync,
+    signOut,
+    // Changes of the signed-in account that exist only in this browser.
+    unsynced: !!user && cache.dirty,
     lastSync,
     error,
     clearError: () => setError(""),

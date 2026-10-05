@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { ArrowUpRight, X } from "lucide-react";
+import { locale, t, useI18n } from "./i18n";
 
 export function Modal({
   title,
@@ -7,15 +8,19 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  alert,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** A problem to keep in view inside the dialog, which covers page-level messages. */
+  alert?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const { t: label } = useI18n();
   useEffect(() => {
     const dialog = ref.current!;
     dialog.showModal();
@@ -26,6 +31,8 @@ export function Modal({
     };
   }, []);
   return (
+    // A click on the backdrop closes the dialog; keyboard users close it with Escape (onCancel).
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events
     <dialog
       ref={ref}
       className={`modal ${wide ? "wide" : ""}`}
@@ -54,13 +61,18 @@ export function Modal({
         </div>
         <button
           className="icon-button"
-          aria-label="Закрити вікно"
+          aria-label={label("modal.close")}
           onClick={onClose}
         >
           <X size={21} />
         </button>
       </header>
       {children}
+      {alert && (
+        <p className="modal-alert" role="alert">
+          {alert}
+        </p>
+      )}
     </dialog>
   );
 }
@@ -138,17 +150,17 @@ export function download(
 }
 export const formatDate = (date?: string | null) =>
   date
-    ? new Date(date).toLocaleDateString("uk-UA", {
+    ? new Date(date).toLocaleDateString(locale(), {
         day: "numeric",
         month: "short",
       })
-    : "Не вказано";
+    : t("date.notSet");
 export const formatTime = (date?: string | null) =>
   date
-    ? new Date(date).toLocaleString("uk-UA", {
+    ? new Date(date).toLocaleString(locale(), {
         day: "numeric",
         month: "short",
         hour: "2-digit",
         minute: "2-digit",
       })
-    : "Ще не оновлювалося";
+    : t("date.never");

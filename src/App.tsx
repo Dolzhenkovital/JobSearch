@@ -10,11 +10,9 @@ import {
   ChevronRight,
   CircleHelp,
   Cloud,
-  Coffee,
   FileText,
-  FolderHeart,
   Globe2,
-  LayoutDashboard,
+  Languages,
   LoaderCircle,
   MapPin,
   Menu,
@@ -34,10 +32,15 @@ import {
   combineJobs,
   contentVersion,
   matchingTerms,
+  mergeImportedJobs,
   parseAtom,
   parseFeed,
   preferenceReasons,
   safeUrl,
+  serializeBackup,
+  sourceLabel,
+  STAGES,
+  WORKSPACE_LIMITS,
 } from "./domain";
 import {
   createPacket,
@@ -55,41 +58,26 @@ import {
   formatTime,
   Modal,
 } from "./ui";
+import { LANGUAGES, LANGUAGE_NAMES, useI18n, type Language } from "./i18n";
 import { useWorkspace } from "./useWorkspace";
-import type { Feed, Job, Packet, Stage, View } from "./types";
+import type { Feed, Job, Packet, Stage, Store, View } from "./types";
 import { AdminPanel } from './AdminPanel';
 import { AiPanel } from './AiPanel';
 import { PasswordRecovery } from './PasswordRecovery';
 import { serviceCall, type ServiceStatus, type LlmRun, type TailorResult } from './service';
 
 const navigation = [
-  { id: "discover", name: "Вакансії", icon: Search },
-  { id: "saved", name: "Обране", icon: Bookmark },
-  { id: "applications", name: "Мої заявки", icon: BriefcaseBusiness },
-  { id: "profile", name: "Мій профіль", icon: UserRound },
-  { id: "documents", name: "Документи", icon: FileText },
-  { id: "sources", name: "Джерела", icon: Globe2 },
+  { id: "discover", icon: Search },
+  { id: "saved", icon: Bookmark },
+  { id: "applications", icon: BriefcaseBusiness },
+  { id: "profile", icon: UserRound },
+  { id: "documents", icon: FileText },
+  { id: "sources", icon: Globe2 },
 ] as const;
-const stages: Record<Stage, string> = {
-  saved: "Збережено",
-  reviewing: "Розглядаю",
-  prepared: "Документи готові",
-  submitted: "Подано",
-  interview: "Співбесіда",
-  offer: "Пропозиція",
-  rejected: "Відмова",
-  withdrawn: "Відкликано",
-};
-const pageDescriptions: Record<View, string> = {
-  discover: "Можливості, з яких починається ваш наступний крок.",
-  saved: "Цікаві вакансії — поруч, коли ви готові діяти.",
-  applications: "Кожна заявка, наступний крок і результат в одному місці.",
-  profile: "Ваш досвід — основа для переконливої заявки.",
-  documents: "Окремий пакет документів для кожної можливості.",
-  sources: "Звідки надходять вакансії та як додати більше можливостей.",
-};
+const stageBuild = import.meta.env.VITE_APP_ENV === "stage";
 
 export default function App() {
+  const { t, language, setLanguage } = useI18n();
   const workspace = useWorkspace();
   const { store, update } = workspace;
   const [view, setView] = useState<View>("discover");
@@ -105,9 +93,28 @@ export default function App() {
     [selectedId, setSelectedId] = useState<string | null>(null),
     [mobileNav, setMobileNav] = useState(false);
   const [toast, setToast] = useState(""),
+    [rejected, setRejected] = useState(""),
     [printPacket, setPrintPacket] = useState<Packet | null>(null);
   const importFeed = useRef<HTMLInputElement>(null);
   const notify = (message: string) => setToast(message);
+  /** Report a failed action. An open dialog covers the toast, so it shows the message too. */
+  function reject(error: unknown) {
+    const message = (error as Error).message;
+    setRejected(message);
+    notify(message);
+  }
+  /** Apply a workspace change; a rejected one leaves the data untouched and is reported. */
+  function commit(change: (store: Store) => Store, done?: string): boolean {
+    try {
+      update(change);
+    } catch (error) {
+      reject(error);
+      return false;
+    }
+    setRejected("");
+    if (done) notify(done);
+    return true;
+  }
   const [adminOpen,setAdminOpen]=useState(false);
   const [serviceState,setServiceState]=useState<{owner:string;value:ServiceStatus|null;error:string}|null>(null);
   const serviceRequest=useRef(0);
@@ -120,6 +127,8 @@ export default function App() {
     try{const value=await serviceCall<ServiceStatus>('status');if(sequence===serviceRequest.current)setServiceState({owner:accountId,value,error:''});}
     catch(e){if(sequence===serviceRequest.current)setServiceState({owner:accountId,value:null,error:(e as Error).message});}
   },[accountId]);
+  // The counter is a request sequence, not a DOM ref: bumping it in cleanup invalidates late responses.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{void refreshService();return()=>{serviceRequest.current++;};},[refreshService]);
   function saveAiPacket(run:LlmRun){
     if(!accountId||liveAccount.current!==accountId||run.user_id!==accountId||run.operation!=='tailor'||run.status!=='succeeded'||!run.result)return;
@@ -130,14 +139,15 @@ export default function App() {
       cv:[contact,result.cv].filter(Boolean).join('\n\n'),letter:[contact,result.letter].filter(Boolean).join('\n\n'),
       profileVersion:run.input.profileVersion,descriptionVersion:contentVersion(run.input.job.description),createdAt:now,approvedAt:null,
       llmRunId:run.id,llmRulesVersion:run.rules_version};
-    update(s=>{
+    const saved=commit(s=>{
       if(s.packets.some(p=>p.llmRunId===run.id))return s;
       const job=jobs.find(j=>j.id===run.input.job.id);
       const existing=s.applications[run.input.job.id];
       return {...s,packets:[packet,...s.packets],applications:!job||existing?s.applications:{...s.applications,
         [job.id]:{job,stage:'reviewing',note:'',updatedAt:now}}};
     });
-    setSelectedId(null);navigate('documents');notify('Нову AI-чернетку збережено. Перевірте факти, актуальність і верстку.');
+    if(!saved)return;
+    setSelectedId(null);navigate('documents');notify(t('toast.aiDraftSaved'));
   }
   useEffect(() => {
     if (!toast) return;
@@ -147,6 +157,9 @@ export default function App() {
   useEffect(() => {
     setLimit(12);
   }, [query, sourceFilter, view, store.settings]);
+  useEffect(() => {
+    setRejected("");
+  }, [selectedId, addJob]);
   async function refreshFeed() {
     setLoading(true);
     setFeedError("");
@@ -157,16 +170,14 @@ export default function App() {
       if (!response.ok) throw new Error();
       setFeed(parseFeed(await response.json()));
     } catch {
-      setFeedError(
-        "Не вдалося завантажити стрічку. Збережені вакансії доступні; спробуйте оновити пізніше.",
-      );
+      setFeedError(t("feed.loadError"));
     } finally {
       setLoading(false);
     }
   }
-  useEffect(() => {
-    void refreshFeed();
-  }, []);
+  // Load the public feed once on mount; later refreshes are explicit.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => void refreshFeed(), []);
   const jobs = useMemo(
     () => combineJobs(feed?.jobs || [], store.jobs, store.applications),
     [feed, store.jobs, store.applications],
@@ -209,14 +220,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function saveJob(job: Job) {
-    update((s) => ({
-      ...s,
-      jobs: [...s.jobs.filter((j) => j.id !== job.id), job],
-      applications: s.applications[job.id]
-        ? { ...s.applications, [job.id]: { ...s.applications[job.id], job } }
-        : s.applications,
-    }));
-    notify("Вакансію збережено у вашому просторі");
+    return commit(
+      (s) => ({
+        ...s,
+        jobs: [...s.jobs.filter((j) => j.id !== job.id), job],
+        applications: s.applications[job.id]
+          ? { ...s.applications, [job.id]: { ...s.applications[job.id], job } }
+          : s.applications,
+      }),
+      t("toast.jobSaved"),
+    );
   }
   function toggleSaved(job: Job) {
     if (
@@ -227,58 +240,58 @@ export default function App() {
       return;
     }
     const removing = !!store.applications[job.id];
-    update((s) => {
-      const applications = { ...s.applications };
-      if (applications[job.id]) delete applications[job.id];
-      else
-        applications[job.id] = {
-          job,
-          stage: "saved",
-          note: "",
-          updatedAt: new Date().toISOString(),
-        };
-      return { ...s, applications };
-    });
-    notify(removing ? "Прибрано з обраного" : "Додано в обране");
+    commit(
+      (s) => {
+        const applications = { ...s.applications };
+        if (applications[job.id]) delete applications[job.id];
+        else
+          applications[job.id] = {
+            job,
+            stage: "saved",
+            note: "",
+            updatedAt: new Date().toISOString(),
+          };
+        return { ...s, applications };
+      },
+      t(removing ? "toast.bookmarkRemoved" : "toast.bookmarkAdded"),
+    );
   }
   function changeStage(job: Job, stage: Stage) {
     const now = new Date().toISOString();
-    update((s) => ({
-      ...s,
-      packets:
-        stage === "submitted"
-          ? s.packets.map((p) =>
-              p.jobId === job.id && !p.frozenAt ? { ...p, frozenAt: now } : p,
-            )
-          : s.packets,
-      applications: {
-        ...s.applications,
-        [job.id]: {
-          ...(s.applications[job.id] || { job, note: "" }),
-          stage,
-          updatedAt: now,
-          ...(stage === "submitted"
-            ? { submittedAt: now, evidence: "user_reported" as const }
-            : {}),
+    commit(
+      (s) => ({
+        ...s,
+        packets:
+          stage === "submitted"
+            ? s.packets.map((p) =>
+                p.jobId === job.id && !p.frozenAt ? { ...p, frozenAt: now } : p,
+              )
+            : s.packets,
+        applications: {
+          ...s.applications,
+          [job.id]: {
+            ...(s.applications[job.id] || { job, note: "" }),
+            stage,
+            updatedAt: now,
+            ...(stage === "submitted"
+              ? { submittedAt: now, evidence: "user_reported" as const }
+              : {}),
+          },
         },
-      },
-    }));
-    notify(
-      stage === "submitted"
-        ? "Позначено як подану вами. Сайт не надсилав заявку."
-        : "Статус оновлено",
+      }),
+      t(stage === "submitted" ? "toast.markedSubmitted" : "toast.stageUpdated"),
     );
   }
   function prepare(job: Job) {
     if (!store.profile.cv.trim()) {
       setSelectedId(null);
       navigate("profile");
-      notify("Спочатку додайте CV у профіль");
+      notify(t("toast.addCvFirst"));
       return;
     }
     if (job.completeness !== "full") {
       setSelectedId(job.id);
-      notify("Додайте повний опис вакансії перед підготовкою документів");
+      notify(t("toast.addFullDescription"));
       return;
     }
     try {
@@ -302,36 +315,46 @@ export default function App() {
       }));
       setSelectedId(null);
       navigate("documents");
-      notify("Чернетку пакета створено. Адаптуйте текст і перевірте факти.");
+      notify(t("toast.packetDraftCreated"));
     } catch (error) {
-      notify((error as Error).message);
+      reject(error);
     }
   }
-  const syncLabel = !workspace.configured
-    ? "Підключити синхронізацію"
-    : !workspace.user
-      ? "Увійти для синхронізації"
-      : workspace.status === "synced"
-        ? "Усе синхронізовано"
-        : workspace.status === "conflict"
-          ? "Є різні версії змін"
-          : workspace.status === "offline"
-            ? "Зміни на пристрої"
-            : "Синхронізація…";
+  const syncLabel = t(
+    !workspace.configured
+      ? "sync.connect"
+      : !workspace.user
+        ? "sync.signIn"
+        : workspace.status === "synced"
+          ? "sync.synced"
+          : workspace.status === "conflict"
+            ? "sync.conflict"
+            : workspace.status === "offline"
+              ? "sync.offline"
+              : "sync.syncing",
+  );
+  const conditions = [
+    store.settings.city,
+    store.settings.roles,
+    store.settings.minHourly &&
+      t("results.fromHourly", { amount: store.settings.minHourly }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <>
       <div className="app-shell">
         {mobileNav && (
           <button
             className="nav-scrim"
-            aria-label="Закрити меню"
+            aria-label={t("menu.close")}
             onClick={() => setMobileNav(false)}
           />
         )}
         <aside className={`sidebar ${mobileNav ? "is-open" : ""}`}>
           <a
             className="brand"
-            href="#"
+            href={import.meta.env.BASE_URL}
             onClick={(event) => {
               event.preventDefault();
               navigate("discover");
@@ -342,12 +365,12 @@ export default function App() {
             </span>
             <span>
               Job<span className="brand-light">Search</span>
-              <small>ВАШ НАСТУПНИЙ КРОК</small>
+              <small>{t("brand.tagline")}</small>
             </span>
           </a>
-          <div className="sidebar-label">МІЙ ПРОСТІР</div>
-          <nav aria-label="Головна навігація">
-            {navigation.map(({ id, name, icon: Icon }) => (
+          <div className="sidebar-label">{t("sidebar.mySpace")}</div>
+          <nav aria-label={t("nav.aria")}>
+            {navigation.map(({ id, icon: Icon }) => (
               <button
                 key={id}
                 className={`nav-item ${view === id ? "active" : ""}`}
@@ -355,7 +378,7 @@ export default function App() {
                 onClick={() => navigate(id)}
               >
                 <Icon size={19} />
-                <span>{name}</span>
+                <span>{t(`nav.${id}`)}</span>
                 {id === "saved" && saved.length > 0 && <b>{saved.length}</b>}
                 {id === "documents" && store.packets.length > 0 && (
                   <b>{store.packets.length}</b>
@@ -364,25 +387,25 @@ export default function App() {
             ))}
           </nav>
           <div className="sidebar-spacer" />
-          {serviceStatus?.isAdmin&&<button className="sidebar-settings" onClick={()=>setAdminOpen(true)}><ShieldCheck size={18}/>Адміністрування</button>}
+          {serviceStatus?.isAdmin&&<button className="sidebar-settings" onClick={()=>setAdminOpen(true)}><ShieldCheck size={18}/>{t("admin.title")}</button>}
           <div className="sidebar-tip">
             <span className="mini-spark">
               <Sparkles size={20} />
             </span>
             <h3>
-              Маленькі кроки.
+              {t("sidebar.tip.title1")}
               <br />
-              Нові можливості.
+              {t("sidebar.tip.title2")}
             </h3>
             <p>
-              Збережіть цікаву вакансію.
+              {t("sidebar.tip.text1")}
               <br />
-              Наступний крок — за вами.
+              {t("sidebar.tip.text2")}
             </p>
             <button
               onClick={() => navigate(store.profile.cv ? "saved" : "profile")}
             >
-              {store.profile.cv ? "До обраного" : "Додати моє CV"}
+              {t(store.profile.cv ? "sidebar.tip.toSaved" : "sidebar.tip.addCv")}
               <ArrowUpRight size={15} />
             </button>
           </div>
@@ -391,7 +414,7 @@ export default function App() {
             onClick={() => setSettingsTab("search")}
           >
             <Settings2 size={18} />
-            Налаштування
+            {t("settings.title")}
           </button>
           <button
             className="sidebar-account"
@@ -405,12 +428,12 @@ export default function App() {
               )}
             </span>
             <span>
-              <strong>{store.profile.name || "Мій акаунт"}</strong>
+              <strong>{store.profile.name || t("account.mine")}</strong>
               <small>
                 <span
                   className={`status-dot ${workspace.status === "synced" ? "online" : ""}`}
                 />
-                {workspace.user ? "Приватний простір" : "На цьому пристрої"}
+                {t(workspace.user ? "account.private" : "account.device")}
               </small>
             </span>
             <ChevronRight size={17} />
@@ -421,16 +444,37 @@ export default function App() {
             <div className="breadcrumb">
               <button
                 className="icon-button mobile-menu"
-                aria-label="Відкрити меню"
+                aria-label={t("menu.open")}
                 onClick={() => setMobileNav(true)}
               >
                 <Menu size={21} />
               </button>
-              <span>Мій простір</span>
-              <ChevronRight size={14} />
-              <strong>{navigation.find((n) => n.id === view)?.name}</strong>
+              <span className="breadcrumb-root">{t("breadcrumb.mySpace")}</span>
+              <ChevronRight size={14} className="breadcrumb-root" />
+              <strong>{t(`nav.${view}`)}</strong>
+              {stageBuild && (
+                <span className="env-badge" title={t("env.stage")}>
+                  STAGE
+                </span>
+              )}
             </div>
             <div className="top-actions">
+              <label className="language-select">
+                <Languages size={16} />
+                <select
+                  aria-label={t("language.label")}
+                  value={language}
+                  onChange={(event) =>
+                    setLanguage(event.target.value as Language)
+                  }
+                >
+                  {LANGUAGES.map((code) => (
+                    <option key={code} value={code}>
+                      {LANGUAGE_NAMES[code]}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 className="sync-button"
                 onClick={() => setSettingsTab("sync")}
@@ -440,7 +484,7 @@ export default function App() {
               </button>
               <button
                 className="icon-button top-settings"
-                aria-label="Налаштування"
+                aria-label={t("settings.title")}
                 onClick={() => setSettingsTab("search")}
               >
                 <Settings2 size={19} />
@@ -450,20 +494,22 @@ export default function App() {
           <main id="main-content">
             <div className="page-heading">
               <div>
-                <p className="eyebrow">РОБОТА, ЯКА ВАМ ПІДХОДИТЬ</p>
+                <p className="eyebrow">{t("page.eyebrow")}</p>
                 <h1>
                   {view === "discover"
-                    ? "Знайдіть свій наступний крок"
-                    : navigation.find((n) => n.id === view)?.name}
+                    ? t("page.discover.title")
+                    : t(`nav.${view}`)}
                 </h1>
-                <p className="page-description">{pageDescriptions[view]}</p>
+                <p className="page-description">
+                  {t(`page.${view}.description`)}
+                </p>
               </div>
               <button
                 className="button primary add-top"
                 onClick={() => setAddJob(true)}
               >
                 <Plus size={18} />
-                Додати вакансію
+                {t("job.add")}
               </button>
             </div>
             {workspace.error && (
@@ -471,7 +517,7 @@ export default function App() {
                 <span>{workspace.error}</span>
                 <button
                   className="icon-button"
-                  aria-label="Приховати повідомлення"
+                  aria-label={t("notice.hide")}
                   onClick={workspace.clearError}
                 >
                   <X size={17} />
@@ -480,36 +526,33 @@ export default function App() {
             )}
             {workspace.conflict && (
               <div className="notice conflict-banner">
-                <strong>На іншому пристрої є нові зміни</strong>
-                <p>
-                  Збережемо резервну копію перед вибором. Яку версію залишити у
-                  спільному просторі?
-                </p>
+                <strong>{t("conflict.title")}</strong>
+                <p>{t("conflict.text")}</p>
                 <div className="button-row">
                   <button
                     className="button secondary"
                     onClick={() =>
                       download(
                         "JobSearch-conflict-backup.json",
-                        JSON.stringify(store, null, 2),
+                        serializeBackup(store),
                         "application/json",
                       )
                     }
                   >
                     <DownloadIcon />
-                    Завантажити копію
+                    {t("common.downloadCopy")}
                   </button>
                   <button
                     className="button primary"
                     onClick={() => workspace.resolve("remote")}
                   >
-                    З іншого пристрою
+                    {t("conflict.remote")}
                   </button>
                   <button
                     className="button secondary"
                     onClick={() => workspace.resolve("local")}
                   >
-                    З цього пристрою
+                    {t("conflict.local")}
                   </button>
                 </div>
               </div>
@@ -520,25 +563,26 @@ export default function App() {
                   <div>
                     <span className="pill light">
                       <span className="tiny-dot" />
-                      ВАШ ПОШУК ПОЧИНАЄТЬСЯ ТУТ
+                      {t("hero.pill")}
                     </span>
                     <h2>
-                      Менше хаосу.
+                      {t("hero.title1")}
                       <br />
-                      Більше можливостей.
+                      {t("hero.title2")}
                     </h2>
                     <p>
-                      Вакансії, ваш досвід і наступні кроки —
-                      <br className="desktop-break" /> разом у зручному
-                      просторі.
+                      {t("hero.text1")}
+                      <br className="desktop-break" /> {t("hero.text2")}
                     </p>
                     <button
                       className="hero-button"
                       onClick={() => setSettingsTab("search")}
                     >
-                      {store.settings.city || store.settings.roles
-                        ? "Уточнити мій пошук"
-                        : "Налаштувати мій пошук"}
+                      {t(
+                        store.settings.city || store.settings.roles
+                          ? "hero.refine"
+                          : "hero.configure",
+                      )}
                       <ArrowRight size={17} />
                     </button>
                   </div>
@@ -570,18 +614,18 @@ export default function App() {
                     </span>
                   </div>
                 </section>
-                <section className="stats-grid" aria-label="Огляд пошуку">
+                <section className="stats-grid" aria-label={t("stats.aria")}>
                   <Stat
                     icon={<Globe2 size={20} />}
                     value={feed?.jobs.length ?? "—"}
-                    label="У стрічці Job Bank"
-                    detail="Остання доступна вибірка"
+                    label={t("stats.feed.label")}
+                    detail={t("stats.feed.detail")}
                   />
                   <Stat
                     icon={<Bookmark size={20} />}
                     value={saved.length}
-                    label="Збережено вами"
-                    detail="Можливості, що зацікавили"
+                    label={t("stats.saved.label")}
+                    detail={t("stats.saved.detail")}
                   />
                   <Stat
                     icon={<BriefcaseBusiness size={20} />}
@@ -590,14 +634,14 @@ export default function App() {
                         ["submitted", "interview", "offer"].includes(a.stage),
                       ).length
                     }
-                    label="Активні заявки"
-                    detail="За вашими позначками"
+                    label={t("stats.active.label")}
+                    detail={t("stats.active.detail")}
                   />
                   <Stat
                     icon={<FileText size={20} />}
                     value={store.packets.length}
-                    label="Пакети документів"
-                    detail="CV та супровідні листи"
+                    label={t("stats.packets.label")}
+                    detail={t("stats.packets.detail")}
                   />
                 </section>
               </>
@@ -606,7 +650,7 @@ export default function App() {
               <>
                 <div className="section-title-row">
                   <h2>
-                    {view === "saved" ? "Збережені можливості" : "Вакансії"}{" "}
+                    {t(view === "saved" ? "jobs.savedTitle" : "nav.discover")}{" "}
                     <span className="count-badge">{filtered.length}</span>
                   </h2>
                   <button
@@ -615,22 +659,22 @@ export default function App() {
                     disabled={loading}
                   >
                     <RefreshCw size={15} className={loading ? "spin" : ""} />
-                    <span>Оновити</span>
+                    <span>{t("common.refresh")}</span>
                   </button>
                 </div>
                 <div className="filterbar">
                   <div className="search-input">
                     <Search size={19} />
                     <input
-                      aria-label="Пошук вакансій"
+                      aria-label={t("search.aria")}
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Посада, компанія або місто…"
+                      placeholder={t("search.placeholder")}
                     />
                     {query && (
                       <button
                         className="icon-button"
-                        aria-label="Очистити пошук"
+                        aria-label={t("search.clear")}
                         onClick={() => setQuery("")}
                       >
                         <X size={16} />
@@ -638,13 +682,15 @@ export default function App() {
                     )}
                   </div>
                   <select
-                    aria-label="Джерело вакансій"
+                    aria-label={t("filter.sourceAria")}
                     value={sourceFilter}
                     onChange={(event) => setSourceFilter(event.target.value)}
                   >
-                    <option value="all">Усі джерела</option>
+                    <option value="all">{t("filter.allSources")}</option>
                     {[...new Set(jobs.map((j) => j.source))].map((source) => (
-                      <option key={source}>{source}</option>
+                      <option key={source} value={source}>
+                        {sourceLabel(source)}
+                      </option>
                     ))}
                   </select>
                   <button
@@ -652,7 +698,7 @@ export default function App() {
                     onClick={() => setSettingsTab("search")}
                   >
                     <SlidersHorizontal size={17} />
-                    Мої умови
+                    {t("filter.myConditions")}
                     {store.settings.applyPreferences && (
                       <span className="tiny-dot" />
                     )}
@@ -661,18 +707,20 @@ export default function App() {
                 <div className="results-meta">
                   <span>
                     {store.settings.applyPreferences
-                      ? `Мої умови: ${[store.settings.city, store.settings.roles, store.settings.minHourly && `від $${store.settings.minHourly}/год`].filter(Boolean).join(" · ") || "без обмежень"}`
-                      : "Показано всі напрямки. Уточніть місто та посади в налаштуваннях."}
+                      ? t("results.conditions", {
+                          conditions: conditions || t("results.noLimits"),
+                        })
+                      : t("results.all")}
                   </span>
                   <label>
                     <ArrowDownWideNarrow size={14} />
                     <select
-                      aria-label="Сортування вакансій"
+                      aria-label={t("sort.aria")}
                       value={sort}
                       onChange={(event) => setSort(event.target.value)}
                     >
-                      <option value="newest">Спочатку нові</option>
-                      <option value="skills">За збігами навичок</option>
+                      <option value="newest">{t("sort.newest")}</option>
+                      <option value="skills">{t("sort.skills")}</option>
                     </select>
                   </label>
                 </div>
@@ -683,15 +731,15 @@ export default function App() {
                 )}
                 {feed && feed.status !== "success" && (
                   <div className="notice">
-                    {feed.message || "Стрічка тимчасово недоступна."}{" "}
+                    {t("feed.unavailable")}{" "}
                     {feed.fetchedAt &&
-                      `Показано копію від ${formatTime(feed.fetchedAt)}.`}
+                      t("feed.copyFrom", { time: formatTime(feed.fetchedAt) })}
                   </div>
                 )}
                 {loading && !jobs.length ? (
                   <div className="loading-state">
                     <LoaderCircle className="spin" size={28} />
-                    <p>Завантажуємо вакансії…</p>
+                    <p>{t("jobs.loading")}</p>
                   </div>
                 ) : !filtered.length ? (
                   <div className="surface">
@@ -703,16 +751,16 @@ export default function App() {
                           <Search size={30} />
                         )
                       }
-                      title={
+                      title={t(
                         view === "saved" && !saved.length
-                          ? "Збережіть те, що зацікавило"
-                          : "Поки немає збігів"
-                      }
-                      text={
+                          ? "empty.saved.title"
+                          : "empty.matches.title",
+                      )}
+                      text={t(
                         view === "saved" && !saved.length
-                          ? "Натисніть закладку на вакансії — вона залишиться тут, навіть після оновлення стрічки."
-                          : "Це обмежена вибірка останніх оголошень. Змініть фільтри, відкрийте пошук у джерелах або додайте вакансію вручну."
-                      }
+                          ? "empty.saved.text"
+                          : "empty.matches.text",
+                      )}
                     >
                       <button
                         className="button secondary"
@@ -720,9 +768,11 @@ export default function App() {
                           navigate(view === "saved" ? "discover" : "sources")
                         }
                       >
-                        {view === "saved"
-                          ? "Переглянути вакансії"
-                          : "Відкрити джерела"}
+                        {t(
+                          view === "saved"
+                            ? "empty.viewJobs"
+                            : "empty.openSources",
+                        )}
                         <ArrowRight size={16} />
                       </button>
                     </Empty>
@@ -746,13 +796,15 @@ export default function App() {
                     className="button secondary load-more"
                     onClick={() => setLimit((n) => n + 12)}
                   >
-                    Показати ще {Math.min(12, filtered.length - limit)} вакансій
+                    {t("jobs.showMore", {
+                      count: Math.min(12, filtered.length - limit),
+                    })}
                   </button>
                 )}
                 <div className="feed-footnote">
                   <Globe2 size={15} />
                   <p>
-                    Джерело:{" "}
+                    {t("feed.source")}{" "}
                     <a
                       href="https://www.jobbank.gc.ca/"
                       target="_blank"
@@ -760,9 +812,7 @@ export default function App() {
                     >
                       Job Bank / Guichet-Emplois
                     </a>
-                    . Оновлено {formatTime(feed?.fetchedAt)}. Стрічка містить
-                    обмежену вибірку оголошень, а не весь ринок. Актуальність
-                    перевіряйте в оригіналі.
+                    . {t("feed.footnote", { time: formatTime(feed?.fetchedAt) })}
                   </p>
                 </div>
               </>
@@ -771,10 +821,9 @@ export default function App() {
               <ProfilePanel
                 key={`${workspace.user?.id || "guest"}:${store.profile.version}`}
                 profile={store.profile}
-                onSave={(profile) => {
-                  update((s) => ({ ...s, profile }));
-                  notify("Профіль збережено");
-                }}
+                onSave={(profile) =>
+                  commit((s) => ({ ...s, profile }), t("toast.profileSaved"))
+                }
                 notify={notify}
               />
             )}
@@ -786,7 +835,7 @@ export default function App() {
                 profile={store.profile}
                 settings={store.settings}
                 onUpdate={(packet) =>
-                  update((s) => ({
+                  commit((s) => ({
                     ...s,
                     packets: s.packets.map((p) =>
                       p.id === packet.id ? packet : p,
@@ -826,33 +875,33 @@ export default function App() {
               <>
                 <div className="pipeline-summary">
                   <span>
-                    <strong>{saved.length}</strong> у вашому списку
+                    {t("pipeline.inList")}: <strong>{saved.length}</strong>
                   </span>
                   <span>
+                    {t("pipeline.interviews")}:{" "}
                     <strong>
                       {saved.filter((a) => a.stage === "interview").length}
-                    </strong>{" "}
-                    співбесід
+                    </strong>
                   </span>
                   <span>
+                    {t("pipeline.offers")}:{" "}
                     <strong>
                       {saved.filter((a) => a.stage === "offer").length}
-                    </strong>{" "}
-                    пропозицій
+                    </strong>
                   </span>
                 </div>
                 {!saved.length ? (
                   <div className="surface">
                     <Empty
                       icon={<BriefcaseBusiness size={32} />}
-                      title="Ваш пошук має свій маршрут"
-                      text="Збережіть вакансію, підготуйте документи й відстежуйте наступні кроки. Подані заявки позначаєте ви."
+                      title={t("applications.empty.title")}
+                      text={t("applications.empty.text")}
                     >
                       <button
                         className="button primary"
                         onClick={() => navigate("discover")}
                       >
-                        Знайти вакансію
+                        {t("applications.find")}
                         <ArrowRight size={17} />
                       </button>
                     </Empty>
@@ -860,9 +909,9 @@ export default function App() {
                 ) : (
                   <div className="surface applications-table">
                     <div className="table-header">
-                      <span>Вакансія</span>
-                      <span>Статус</span>
-                      <span>Оновлено</span>
+                      <span>{t("table.job")}</span>
+                      <span>{t("table.status")}</span>
+                      <span>{t("table.updated")}</span>
                     </div>
                     {saved.map((application) => (
                       <div className="application-row" key={application.job.id}>
@@ -881,7 +930,9 @@ export default function App() {
                           </span>
                         </button>
                         <select
-                          aria-label={`Статус заявки ${application.job.title}`}
+                          aria-label={t("applications.statusAria", {
+                            title: application.job.title,
+                          })}
                           value={application.stage}
                           onChange={(event) =>
                             changeStage(
@@ -890,9 +941,9 @@ export default function App() {
                             )
                           }
                         >
-                          {Object.entries(stages).map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
+                          {STAGES.map((stage) => (
+                            <option key={stage} value={stage}>
+                              {t(`stage.${stage}`)}
                             </option>
                           ))}
                         </select>
@@ -904,8 +955,7 @@ export default function App() {
                   </div>
                 )}
                 <p className="form-note">
-                  <ShieldCheck size={14} /> Відкриття оголошення та підготовка
-                  документів не надсилають заявку роботодавцю.
+                  <ShieldCheck size={14} /> {t("applications.note")}
                 </p>
               </>
             )}
@@ -914,45 +964,45 @@ export default function App() {
                 <div className="source-intro">
                   <Globe2 size={27} />
                   <div>
-                    <h2>Більше шляхів до вашої роботи</h2>
-                    <p>
-                      Використовуйте стрічку Job Bank або зберігайте вакансії з
-                      інших майданчиків у спільний список.
-                    </p>
+                    <h2>{t("sources.intro.title")}</h2>
+                    <p>{t("sources.intro.text")}</p>
                   </div>
                 </div>
                 <div className="sources-grid">
                   <SourceCard
                     initials="JB"
                     title="Job Bank"
-                    subtitle="Державний портал Канади"
-                    status={
+                    subtitle={t("sources.jobbank.subtitle")}
+                    status={t(
                       feedError || feed?.status === "error"
-                        ? "Оновлення недоступне"
+                        ? "sources.status.unavailable"
                         : feed?.status === "stale"
-                          ? "Попередня копія"
+                          ? "sources.status.stale"
                           : feed?.status === "success"
-                            ? "Стрічка працює"
-                            : "Перевіряємо стрічку"
-                    }
-                    description={`Остання вибірка: ${feed?.jobs.length || 0} оголошень. Оновлення — ${formatTime(feed?.fetchedAt)}. Повний опис відкривається на сайті роботодавця або Job Bank.`}
+                            ? "sources.status.ok"
+                            : "sources.status.checking",
+                    )}
+                    description={t("sources.jobbank.description", {
+                      count: feed?.jobs.length || 0,
+                      time: formatTime(feed?.fetchedAt),
+                    })}
                     url={`https://www.jobbank.gc.ca/jobsearch/jobsearch?searchstring=${encodeURIComponent(store.settings.roles.split(",")[0] || "")}&locationstring=${encodeURIComponent(store.settings.city)}`}
                     primary
                   />
                   <SourceCard
                     initials="in"
                     title="Indeed"
-                    subtitle="Пошук та email-сповіщення"
-                    status="Зовнішній пошук"
-                    description="Знайдіть вакансію або налаштуйте сповіщення в Indeed. Додайте посилання та текст сюди — профіль і документи залишаться в одному місці."
+                    subtitle={t("sources.indeed.subtitle")}
+                    status={t("sources.external")}
+                    description={t("sources.indeed.description")}
                     url={`https://ca.indeed.com/jobs?q=${encodeURIComponent(store.settings.roles.split(",")[0] || "")}&l=${encodeURIComponent(store.settings.city)}`}
                   />
                   <SourceCard
                     initials="ji"
                     title="Jobillico"
-                    subtitle="Вакансії та роботодавці Канади"
-                    status="Зовнішній пошук"
-                    description="Переглядайте оголошення та email-сповіщення Jobillico. Цікаві пропозиції можна додати вручну разом із повним описом."
+                    subtitle={t("sources.jobillico.subtitle")}
+                    status={t("sources.external")}
+                    description={t("sources.jobillico.description")}
                     url="https://www.jobillico.com/recherche-emploi"
                   />
                 </div>
@@ -961,18 +1011,15 @@ export default function App() {
                     <Upload size={24} />
                   </div>
                   <div>
-                    <h3>У вас є стрічка вакансій?</h3>
-                    <p>
-                      Імпортуйте завантажений RSS/Atom-файл. Вакансії з’являться
-                      у вашому просторі; повторний імпорт не створює дублікати.
-                    </p>
+                    <h3>{t("import.title")}</h3>
+                    <p>{t("import.text")}</p>
                   </div>
                   <button
                     className="button secondary"
                     onClick={() => importFeed.current?.click()}
                   >
                     <Upload size={17} />
-                    Імпортувати XML
+                    {t("import.button")}
                   </button>
                   <input
                     ref={importFeed}
@@ -985,20 +1032,24 @@ export default function App() {
                       if (!file) return;
                       try {
                         if (file.size > 5 * 1024 * 1024)
-                          throw new Error("Максимальний розмір — 5 МБ.");
-                        const imported = parseAtom(await file.text());
-                        update((s) => ({
-                          ...s,
-                          jobs: [
-                            ...new Map(
-                              [...s.jobs, ...imported].map((job) => [
-                                job.id,
-                                job,
-                              ]),
-                            ).values(),
-                          ],
-                        }));
-                        notify(`Імпортовано вакансій: ${imported.length}`);
+                          throw new Error(t("error.maxSize"));
+                        const parsed = parseAtom(await file.text());
+                        let merged!: ReturnType<typeof mergeImportedJobs>;
+                        // Merge into the store as it is when the change applies, not as rendered.
+                        update((s) => {
+                          merged = mergeImportedJobs(s.jobs, parsed.jobs);
+                          return { ...s, jobs: merged.jobs };
+                        });
+                        const skipped = parsed.skipped + merged.skipped;
+                        notify(
+                          skipped
+                            ? t("toast.importedPartly", {
+                                count: merged.imported,
+                                skipped,
+                                max: WORKSPACE_LIMITS.jobs,
+                              })
+                            : t("toast.imported", { count: merged.imported }),
+                        );
                         navigate("discover");
                       } catch (error) {
                         notify((error as Error).message);
@@ -1008,21 +1059,18 @@ export default function App() {
                 </div>
                 <div className="info-box">
                   <CircleHelp size={20} />
-                  <p>
-                    Indeed і Jobillico поки відкривають пошук на своїх сайтах.
-                    Автоматичного входу до їхніх акаунтів, читання пошти чи
-                    скрапінгу тут немає.
-                  </p>
+                  <p>{t("sources.info")}</p>
                 </div>
               </>
             )}
             <footer className="page-footer">
               <span>
-                JobSearch <span className="footer-dot">·</span> Ваш наступний
-                крок
+                JobSearch <span className="footer-dot">·</span>{" "}
+                {t("footer.tagline")}
               </span>
               <span>
-                <ShieldCheck size={14} />З думкою про ваші дані
+                <ShieldCheck size={14} />
+                {t("footer.privacy")}
               </span>
             </footer>
           </main>
@@ -1038,15 +1086,22 @@ export default function App() {
       )}
       {adminOpen&&serviceStatus?.isAdmin&&accountId&&<AdminPanel key={accountId} onClose={()=>setAdminOpen(false)} notify={notify} onConfigChange={()=>void refreshService()}/>}
       <PasswordRecovery/>
-      {addJob && <JobForm onSave={saveJob} onClose={() => setAddJob(false)} />}
+      {addJob && (
+        <JobForm
+          onSave={saveJob}
+          onClose={() => setAddJob(false)}
+          alert={rejected}
+        />
+      )}
       {selected && (
         <JobDetails
           key={`${accountId||'guest'}:${selected.id}`}
           job={selected}
           application={store.applications[selected.id]}
           profile={store.profile}
+          alert={rejected}
           ai={<>
-            {serviceState?.owner===accountId&&serviceState?.error&&<div className="notice" role="alert">{serviceState.error}<button className="text-link" onClick={()=>void refreshService()}>Оновити AI-сервіс</button></div>}
+            {serviceState?.owner===accountId&&serviceState?.error&&<div className="notice" role="alert">{serviceState.error}<button className="text-link" onClick={()=>void refreshService()}>{t("ai.refreshService")}</button></div>}
             <AiPanel key={`${accountId||'guest'}:${selected.id}`} job={selected} profile={store.profile} settings={store.settings} userId={accountId} service={serviceStatus} onPacket={saveAiPacket} onUsageChange={()=>void refreshService()}/>
           </>}
           onClose={() => setSelectedId(null)}
@@ -1055,7 +1110,7 @@ export default function App() {
           onPrepare={() => prepare(selected)}
           onStage={(stage) => changeStage(selected, stage)}
           onNote={(note) =>
-            update((s) => ({
+            commit((s) => ({
               ...s,
               applications: {
                 ...s.applications,
@@ -1077,7 +1132,7 @@ export default function App() {
           <CheckCircle2 size={19} />
           <span>{toast}</span>
           <button
-            aria-label="Закрити повідомлення"
+            aria-label={t("toast.close")}
             onClick={() => setToast("")}
           >
             <X size={16} />
@@ -1138,6 +1193,7 @@ function JobCard({
   onSelect: () => void;
   onSave: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <article className="job-card">
       <div className="job-top">
@@ -1147,21 +1203,21 @@ function JobCard({
           </span>
           <div>
             <span className="company-name">
-              {job.employer || "Роботодавець не вказаний"}
+              {job.employer || t("job.noEmployer")}
             </span>
             <span className="job-source">
-              {job.source} <span>·</span>{" "}
+              {sourceLabel(job.source)} <span>·</span>{" "}
               {job.publishedAt
-                ? `Опубліковано ${formatDate(job.publishedAt)}`
-                : `Знайдено ${formatDate(job.firstSeenAt)}`}
+                ? t("job.published", { date: formatDate(job.publishedAt) })
+                : t("job.found", { date: formatDate(job.firstSeenAt) })}
             </span>
           </div>
         </div>
         <button
           className={`bookmark-button ${saved ? "saved" : ""}`}
-          aria-label={
-            saved ? `Збережена вакансія ${job.title}` : `Зберегти ${job.title}`
-          }
+          aria-label={t(saved ? "job.savedAria" : "job.saveAria", {
+            title: job.title,
+          })}
           aria-pressed={saved}
           onClick={onSave}
         >
@@ -1173,32 +1229,36 @@ function JobCard({
       </button>
       <div className="job-location">
         <MapPin size={15} />
-        {job.location || "Місце не вказано"}
+        {job.location || t("job.noLocation")}
       </div>
       <div className="job-salary">
         <Wallet size={16} />
-        {job.salary || "Оплату не вказано"}
+        {job.salary || t("job.noSalary")}
       </div>
       <div className="job-tags">
         <span className={job.completeness === "full" ? "tag tag-green" : "tag"}>
-          {job.completeness === "full" ? "Повний опис" : "Короткий опис"}
+          {t(job.completeness === "full" ? "job.full" : "job.snippet")}
         </span>
         {matches.length > 0 && (
           <span className="tag tag-mint">
             <Sparkles size={12} />
-            Збігів навичок: {matches.length}
+            {t("job.skillMatches", { count: matches.length })}
           </span>
         )}
-        {job.availability === "closed" && <span className="tag">Закрита</span>}
+        {job.availability === "closed" && (
+          <span className="tag">{t("job.closed")}</span>
+        )}
       </div>
       <div className="job-bottom">
         <span>
-          {job.completeness === "full"
-            ? "Можна підготувати документи"
-            : "Перевірте вимоги в оригіналі"}
+          {t(
+            job.completeness === "full"
+              ? "job.canPrepare"
+              : "job.checkOriginal",
+          )}
         </span>
         <button onClick={onSelect}>
-          Переглянути
+          {t("job.view")}
           <ArrowUpRight size={16} />
         </button>
       </div>
@@ -1222,6 +1282,7 @@ function SourceCard({
   url: string;
   primary?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <article className="surface source-card">
       <span className={`source-logo ${primary ? "green" : ""}`}>
@@ -1235,7 +1296,7 @@ function SourceCard({
       </span>
       <p>{description}</p>
       <ExternalLink href={url} className="button secondary">
-        Відкрити пошук
+        {t("sources.openSearch")}
       </ExternalLink>
     </article>
   );
@@ -1251,64 +1312,74 @@ function JobDetails({
   onStage,
   onNote,
   ai,
+  alert,
 }: {
   job: Job;
   application?: import("./types").Application;
   profile: import("./types").Profile;
   onClose: () => void;
-  onSave: (job: Job) => void;
+  onSave: (job: Job) => boolean;
   onBookmark: () => void;
   onPrepare: () => void;
   onStage: (stage: Stage) => void;
   onNote: (note: string) => void;
   ai?: ReactNode;
+  alert?: string;
 }) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false),
     [description, setDescription] = useState(job.description),
     [full, setFull] = useState(job.completeness === "full");
   const matches = matchingTerms(job, profile);
   return (
-    <Modal title={job.title} subtitle={job.employer} onClose={onClose} wide>
+    <Modal
+      title={job.title}
+      subtitle={job.employer}
+      onClose={onClose}
+      alert={alert}
+      wide
+    >
       <div className="modal-body job-details">
         <div className="detail-meta">
           <span>
             <MapPin size={17} />
-            {job.location || "Місце не вказано"}
+            {job.location || t("job.noLocation")}
           </span>
           <span>
             <Wallet size={17} />
-            {job.salary || "Оплату не вказано"}
+            {job.salary || t("job.noSalary")}
           </span>
         </div>
         <div className="detail-links">
           {safeUrl(job.url) && (
             <ExternalLink href={job.url} className="button secondary small">
-              Оригінал оголошення
+              {t("details.original")}
             </ExternalLink>
           )}
-          <span className="tag">{job.source}</span>
-          <span className="muted">Знайдено {formatDate(job.firstSeenAt)}</span>
+          <span className="tag">{sourceLabel(job.source)}</span>
+          <span className="muted">
+            {t("job.found", { date: formatDate(job.firstSeenAt) })}
+          </span>
         </div>
         <section className="detail-section">
           <div className="section-title-row">
-            <h3>Опис вакансії</h3>
+            <h3>{t("details.description")}</h3>
             <button className="text-link" onClick={() => setEditing(!editing)}>
-              {editing
-                ? "Скасувати редагування"
-                : job.completeness === "full"
-                  ? "Редагувати"
-                  : "Додати повний опис"}
+              {t(
+                editing
+                  ? "details.cancelEdit"
+                  : job.completeness === "full"
+                    ? "common.edit"
+                    : "details.addFull",
+              )}
             </button>
           </div>
           {job.completeness !== "full" && !editing && (
-            <div className="notice">
-              У стрічці є лише короткі дані. Відкрийте оригінал та додайте
-              повний опис із вимогами для підготовки документів.
-            </div>
+            <div className="notice">{t("details.snippetNotice")}</div>
           )}
           {editing ? (
             <>
-              <Field label="Повний текст оголошення">
+              <Field label={t("details.fullText")}>
                 <textarea
                   rows={12}
                   value={description}
@@ -1322,34 +1393,36 @@ function JobDetails({
                   checked={full}
                   onChange={(event) => setFull(event.target.checked)}
                 />
-                <span>Текст містить повний опис та вимоги</span>
+                <span>{t("details.fullCheckbox")}</span>
               </label>
               <button
                 className="button primary small"
                 disabled={!description.trim()}
                 onClick={() => {
-                  onSave({
-                    ...job,
-                    description,
-                    completeness: full ? "full" : "snippet",
-                  });
-                  setEditing(false);
+                  if (
+                    onSave({
+                      ...job,
+                      description,
+                      completeness: full ? "full" : "snippet",
+                    })
+                  )
+                    setEditing(false);
                 }}
               >
                 <Check size={16} />
-                Зберегти опис
+                {t("details.saveDescription")}
               </button>
             </>
           ) : (
             <div className="description-text">
-              {job.description || "Опис поки не додано."}
+              {job.description || t("details.noDescription")}
             </div>
           )}
         </section>
         <section className="detail-section">
           <h3>
             <Sparkles size={17} />
-            Збіги з вашим профілем
+            {t("details.matches")}
           </h3>
           {matches.length ? (
             <>
@@ -1360,57 +1433,49 @@ function JobDetails({
                   </span>
                 ))}
               </div>
-              <p className="form-note">
-                Точні текстові збіги підтверджених навичок. Вони не перевіряють
-                рівень володіння або всі вимоги вакансії.
-              </p>
+              <p className="form-note">{t("details.matchesNote")}</p>
             </>
           ) : (
             <p className="muted">
-              {profile.skills
-                ? "Точних текстових збігів поки немає. Це не означає, що ваш досвід не підходить."
-                : "Додайте підтверджені навички у профіль, щоб бачити текстові збіги."}
+              {t(profile.skills ? "details.noMatches" : "details.addSkills")}
             </p>
           )}
         </section>
         {ai}
         <section className="detail-section">
           <div className="form-grid">
-            <Field label="Статус моєї заявки">
+            <Field label={t("details.myStatus")}>
               <select
                 value={application?.stage || ""}
                 onChange={(event) => onStage(event.target.value as Stage)}
               >
                 <option value="" disabled>
-                  Ще не збережено
+                  {t("details.notSaved")}
                 </option>
-                {Object.entries(stages).map(([key, title]) => (
-                  <option value={key} key={key}>
-                    {title}
+                {STAGES.map((stage) => (
+                  <option value={stage} key={stage}>
+                    {t(`stage.${stage}`)}
                   </option>
                 ))}
               </select>
             </Field>
-            <Field label="Мої нотатки">
+            <Field label={t("details.notes")}>
               <textarea
                 rows={3}
                 value={application?.note || ""}
                 onChange={(event) => onNote(event.target.value)}
-                placeholder="Питання, контакт або наступний крок…"
+                placeholder={t("details.notesPlaceholder")}
                 maxLength={10000}
               />
             </Field>
           </div>
-          <p className="form-note">
-            Позначаючи «Подано», ви підтверджуєте, що надіслали заявку
-            самостійно.
-          </p>
+          <p className="form-note">{t("details.submittedNote")}</p>
         </section>
       </div>
       <footer className="modal-footer">
         <button className="button secondary" onClick={onBookmark}>
           <Bookmark size={17} fill={application ? "currentColor" : "none"} />
-          {application ? "Збережено" : "В обране"}
+          {t(application ? "stage.saved" : "details.bookmark")}
         </button>
         <button
           className="button primary"
@@ -1418,7 +1483,7 @@ function JobDetails({
           onClick={onPrepare}
         >
           <FileText size={17} />
-          Підготувати документи
+          {t("details.prepare")}
         </button>
       </footer>
     </Modal>
