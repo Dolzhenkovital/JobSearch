@@ -253,6 +253,8 @@ export const fr: Record<MessageKey, string> = {
     "Le brouillon du dossier est créé. Adaptez le texte et vérifiez les faits.",
   "toast.profileSaved": "Profil enregistré",
   "toast.imported": "Offres importées : {count}",
+  "toast.importedPartly":
+    "Offres importées : {count}. Ignorées : {skipped} — votre espace contient au maximum {max} offres, et les entrées aux champs trop longs ne sont pas importées.",
   "toast.settingsSaved": "Paramètres enregistrés",
   "toast.restored":
     "La copie est restaurée. La version précédente a été téléchargée séparément.",
@@ -538,6 +540,8 @@ export const fr: Record<MessageKey, string> = {
     "Le navigateur n’a pas pu enregistrer les modifications. Faites une copie de sauvegarde dans les paramètres.",
   "workspace.syncUnavailable":
     "La synchronisation est indisponible. Les modifications locales sont enregistrées ; nous réessaierons.",
+  "workspace.tooLarge":
+    "Le stockage infonuagique n’a pas accepté les modifications : votre espace dépasse 5 Mo. Les modifications restent sur cet appareil. Enregistrez une copie de sauvegarde dans les paramètres et raccourcissez les textes des documents ou des offres.",
   "workspace.localCorrupted":
     "La copie locale est endommagée. Elle n’a pas été écrasée. Restaurez une sauvegarde depuis les paramètres.",
   "workspace.cloudOpenFailed":
@@ -546,6 +550,16 @@ export const fr: Record<MessageKey, string> = {
     "L’espace enregistré n’a pas pu être lu. La copie d’origine est conservée pour la récupération ; la synchronisation est suspendue.",
   "workspace.backupFailed":
     "Impossible de créer une copie. Exportez d’abord les données.",
+  "workspace.changeRejected":
+    "La modification n’a pas été enregistrée. {reason}",
+  "workspace.limit.jobs":
+    "Trop d’offres : votre espace en contient au maximum {max}.",
+  "workspace.limit.applications":
+    "Trop de favoris et de candidatures : votre espace en contient au maximum {max}.",
+  "workspace.limit.packets":
+    "Trop de dossiers de documents : votre espace en contient au maximum {max}.",
+  "workspace.limit.size":
+    "Votre espace est trop volumineux : l’ensemble des données doit tenir dans 5 Mo.",
 
   "error.format": "Format de données invalide.",
   "error.textField": "Champ de texte invalide ou trop long.",
@@ -561,7 +575,6 @@ export const fr: Record<MessageKey, string> = {
   "error.salaryAmount": "Montant de rémunération invalide.",
   "error.settings": "Paramètres invalides.",
   "error.lists": "Liste d’offres ou de documents invalide.",
-  "error.tooManyApplications": "Trop de candidatures.",
   "error.applicationState": "État de candidature invalide.",
   "error.packetVersion": "Version de dossier invalide.",
   "error.packetRequirements":

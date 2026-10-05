@@ -32,12 +32,14 @@ import {
   combineJobs,
   contentVersion,
   matchingTerms,
+  mergeImportedJobs,
   parseAtom,
   parseFeed,
   preferenceReasons,
   safeUrl,
   sourceLabel,
   STAGES,
+  WORKSPACE_LIMITS,
 } from "./domain";
 import {
   createPacket,
@@ -57,7 +59,7 @@ import {
 } from "./ui";
 import { LANGUAGES, LANGUAGE_NAMES, useI18n, type Language } from "./i18n";
 import { useWorkspace } from "./useWorkspace";
-import type { Feed, Job, Packet, Stage, View } from "./types";
+import type { Feed, Job, Packet, Stage, Store, View } from "./types";
 import { AdminPanel } from './AdminPanel';
 import { AiPanel } from './AiPanel';
 import { PasswordRecovery } from './PasswordRecovery';
@@ -90,9 +92,28 @@ export default function App() {
     [selectedId, setSelectedId] = useState<string | null>(null),
     [mobileNav, setMobileNav] = useState(false);
   const [toast, setToast] = useState(""),
+    [rejected, setRejected] = useState(""),
     [printPacket, setPrintPacket] = useState<Packet | null>(null);
   const importFeed = useRef<HTMLInputElement>(null);
   const notify = (message: string) => setToast(message);
+  /** Report a failed action. An open dialog covers the toast, so it shows the message too. */
+  function reject(error: unknown) {
+    const message = (error as Error).message;
+    setRejected(message);
+    notify(message);
+  }
+  /** Apply a workspace change; a rejected one leaves the data untouched and is reported. */
+  function commit(change: (store: Store) => Store, done?: string): boolean {
+    try {
+      update(change);
+    } catch (error) {
+      reject(error);
+      return false;
+    }
+    setRejected("");
+    if (done) notify(done);
+    return true;
+  }
   const [adminOpen,setAdminOpen]=useState(false);
   const [serviceState,setServiceState]=useState<{owner:string;value:ServiceStatus|null;error:string}|null>(null);
   const serviceRequest=useRef(0);
@@ -117,13 +138,14 @@ export default function App() {
       cv:[contact,result.cv].filter(Boolean).join('\n\n'),letter:[contact,result.letter].filter(Boolean).join('\n\n'),
       profileVersion:run.input.profileVersion,descriptionVersion:contentVersion(run.input.job.description),createdAt:now,approvedAt:null,
       llmRunId:run.id,llmRulesVersion:run.rules_version};
-    update(s=>{
+    const saved=commit(s=>{
       if(s.packets.some(p=>p.llmRunId===run.id))return s;
       const job=jobs.find(j=>j.id===run.input.job.id);
       const existing=s.applications[run.input.job.id];
       return {...s,packets:[packet,...s.packets],applications:!job||existing?s.applications:{...s.applications,
         [job.id]:{job,stage:'reviewing',note:'',updatedAt:now}}};
     });
+    if(!saved)return;
     setSelectedId(null);navigate('documents');notify(t('toast.aiDraftSaved'));
   }
   useEffect(() => {
@@ -134,6 +156,9 @@ export default function App() {
   useEffect(() => {
     setLimit(12);
   }, [query, sourceFilter, view, store.settings]);
+  useEffect(() => {
+    setRejected("");
+  }, [selectedId, addJob]);
   async function refreshFeed() {
     setLoading(true);
     setFeedError("");
@@ -194,14 +219,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function saveJob(job: Job) {
-    update((s) => ({
-      ...s,
-      jobs: [...s.jobs.filter((j) => j.id !== job.id), job],
-      applications: s.applications[job.id]
-        ? { ...s.applications, [job.id]: { ...s.applications[job.id], job } }
-        : s.applications,
-    }));
-    notify(t("toast.jobSaved"));
+    return commit(
+      (s) => ({
+        ...s,
+        jobs: [...s.jobs.filter((j) => j.id !== job.id), job],
+        applications: s.applications[job.id]
+          ? { ...s.applications, [job.id]: { ...s.applications[job.id], job } }
+          : s.applications,
+      }),
+      t("toast.jobSaved"),
+    );
   }
   function toggleSaved(job: Job) {
     if (
@@ -212,43 +239,45 @@ export default function App() {
       return;
     }
     const removing = !!store.applications[job.id];
-    update((s) => {
-      const applications = { ...s.applications };
-      if (applications[job.id]) delete applications[job.id];
-      else
-        applications[job.id] = {
-          job,
-          stage: "saved",
-          note: "",
-          updatedAt: new Date().toISOString(),
-        };
-      return { ...s, applications };
-    });
-    notify(t(removing ? "toast.bookmarkRemoved" : "toast.bookmarkAdded"));
+    commit(
+      (s) => {
+        const applications = { ...s.applications };
+        if (applications[job.id]) delete applications[job.id];
+        else
+          applications[job.id] = {
+            job,
+            stage: "saved",
+            note: "",
+            updatedAt: new Date().toISOString(),
+          };
+        return { ...s, applications };
+      },
+      t(removing ? "toast.bookmarkRemoved" : "toast.bookmarkAdded"),
+    );
   }
   function changeStage(job: Job, stage: Stage) {
     const now = new Date().toISOString();
-    update((s) => ({
-      ...s,
-      packets:
-        stage === "submitted"
-          ? s.packets.map((p) =>
-              p.jobId === job.id && !p.frozenAt ? { ...p, frozenAt: now } : p,
-            )
-          : s.packets,
-      applications: {
-        ...s.applications,
-        [job.id]: {
-          ...(s.applications[job.id] || { job, note: "" }),
-          stage,
-          updatedAt: now,
-          ...(stage === "submitted"
-            ? { submittedAt: now, evidence: "user_reported" as const }
-            : {}),
+    commit(
+      (s) => ({
+        ...s,
+        packets:
+          stage === "submitted"
+            ? s.packets.map((p) =>
+                p.jobId === job.id && !p.frozenAt ? { ...p, frozenAt: now } : p,
+              )
+            : s.packets,
+        applications: {
+          ...s.applications,
+          [job.id]: {
+            ...(s.applications[job.id] || { job, note: "" }),
+            stage,
+            updatedAt: now,
+            ...(stage === "submitted"
+              ? { submittedAt: now, evidence: "user_reported" as const }
+              : {}),
+          },
         },
-      },
-    }));
-    notify(
+      }),
       t(stage === "submitted" ? "toast.markedSubmitted" : "toast.stageUpdated"),
     );
   }
@@ -287,7 +316,7 @@ export default function App() {
       navigate("documents");
       notify(t("toast.packetDraftCreated"));
     } catch (error) {
-      notify((error as Error).message);
+      reject(error);
     }
   }
   const syncLabel = t(
@@ -791,10 +820,9 @@ export default function App() {
               <ProfilePanel
                 key={`${workspace.user?.id || "guest"}:${store.profile.version}`}
                 profile={store.profile}
-                onSave={(profile) => {
-                  update((s) => ({ ...s, profile }));
-                  notify(t("toast.profileSaved"));
-                }}
+                onSave={(profile) =>
+                  commit((s) => ({ ...s, profile }), t("toast.profileSaved"))
+                }
                 notify={notify}
               />
             )}
@@ -806,7 +834,7 @@ export default function App() {
                 profile={store.profile}
                 settings={store.settings}
                 onUpdate={(packet) =>
-                  update((s) => ({
+                  commit((s) => ({
                     ...s,
                     packets: s.packets.map((p) =>
                       p.id === packet.id ? packet : p,
@@ -1004,19 +1032,23 @@ export default function App() {
                       try {
                         if (file.size > 5 * 1024 * 1024)
                           throw new Error(t("error.maxSize"));
-                        const imported = parseAtom(await file.text());
-                        update((s) => ({
-                          ...s,
-                          jobs: [
-                            ...new Map(
-                              [...s.jobs, ...imported].map((job) => [
-                                job.id,
-                                job,
-                              ]),
-                            ).values(),
-                          ],
-                        }));
-                        notify(t("toast.imported", { count: imported.length }));
+                        const parsed = parseAtom(await file.text());
+                        let merged!: ReturnType<typeof mergeImportedJobs>;
+                        // Merge into the store as it is when the change applies, not as rendered.
+                        update((s) => {
+                          merged = mergeImportedJobs(s.jobs, parsed.jobs);
+                          return { ...s, jobs: merged.jobs };
+                        });
+                        const skipped = parsed.skipped + merged.skipped;
+                        notify(
+                          skipped
+                            ? t("toast.importedPartly", {
+                                count: merged.imported,
+                                skipped,
+                                max: WORKSPACE_LIMITS.jobs,
+                              })
+                            : t("toast.imported", { count: merged.imported }),
+                        );
                         navigate("discover");
                       } catch (error) {
                         notify((error as Error).message);
@@ -1053,13 +1085,20 @@ export default function App() {
       )}
       {adminOpen&&serviceStatus?.isAdmin&&accountId&&<AdminPanel key={accountId} onClose={()=>setAdminOpen(false)} notify={notify} onConfigChange={()=>void refreshService()}/>}
       <PasswordRecovery/>
-      {addJob && <JobForm onSave={saveJob} onClose={() => setAddJob(false)} />}
+      {addJob && (
+        <JobForm
+          onSave={saveJob}
+          onClose={() => setAddJob(false)}
+          alert={rejected}
+        />
+      )}
       {selected && (
         <JobDetails
           key={`${accountId||'guest'}:${selected.id}`}
           job={selected}
           application={store.applications[selected.id]}
           profile={store.profile}
+          alert={rejected}
           ai={<>
             {serviceState?.owner===accountId&&serviceState?.error&&<div className="notice" role="alert">{serviceState.error}<button className="text-link" onClick={()=>void refreshService()}>{t("ai.refreshService")}</button></div>}
             <AiPanel key={`${accountId||'guest'}:${selected.id}`} job={selected} profile={store.profile} settings={store.settings} userId={accountId} service={serviceStatus} onPacket={saveAiPacket} onUsageChange={()=>void refreshService()}/>
@@ -1070,7 +1109,7 @@ export default function App() {
           onPrepare={() => prepare(selected)}
           onStage={(stage) => changeStage(selected, stage)}
           onNote={(note) =>
-            update((s) => ({
+            commit((s) => ({
               ...s,
               applications: {
                 ...s.applications,
@@ -1272,17 +1311,19 @@ function JobDetails({
   onStage,
   onNote,
   ai,
+  alert,
 }: {
   job: Job;
   application?: import("./types").Application;
   profile: import("./types").Profile;
   onClose: () => void;
-  onSave: (job: Job) => void;
+  onSave: (job: Job) => boolean;
   onBookmark: () => void;
   onPrepare: () => void;
   onStage: (stage: Stage) => void;
   onNote: (note: string) => void;
   ai?: ReactNode;
+  alert?: string;
 }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false),
@@ -1290,7 +1331,13 @@ function JobDetails({
     [full, setFull] = useState(job.completeness === "full");
   const matches = matchingTerms(job, profile);
   return (
-    <Modal title={job.title} subtitle={job.employer} onClose={onClose} wide>
+    <Modal
+      title={job.title}
+      subtitle={job.employer}
+      onClose={onClose}
+      alert={alert}
+      wide
+    >
       <div className="modal-body job-details">
         <div className="detail-meta">
           <span>
@@ -1351,12 +1398,14 @@ function JobDetails({
                 className="button primary small"
                 disabled={!description.trim()}
                 onClick={() => {
-                  onSave({
-                    ...job,
-                    description,
-                    completeness: full ? "full" : "snippet",
-                  });
-                  setEditing(false);
+                  if (
+                    onSave({
+                      ...job,
+                      description,
+                      completeness: full ? "full" : "snippet",
+                    })
+                  )
+                    setEditing(false);
                 }}
               >
                 <Check size={16} />

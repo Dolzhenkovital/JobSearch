@@ -8,12 +8,15 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  alert,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** A problem to keep in view inside the dialog, which covers page-level messages. */
+  alert?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -65,6 +68,11 @@ export function Modal({
         </button>
       </header>
       {children}
+      {alert && (
+        <p className="modal-alert" role="alert">
+          {alert}
+        </p>
+      )}
     </dialog>
   );
 }

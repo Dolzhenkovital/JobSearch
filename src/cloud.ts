@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { parseBackup } from "./domain";
+import { validateStore } from "./domain";
 import { t } from "./i18n";
 import type { Store } from "./types";
 import { publicCloudConfig } from "./publicCloudConfig";
@@ -40,11 +40,14 @@ export async function fetchRemote(userId: string): Promise<Remote | null> {
   if (error) throw error;
   return data
     ? {
-        store: parseBackup(JSON.stringify(data.payload)),
+        store: validateStore(data.payload),
         revision: data.revision,
       }
     : null;
 }
+/** The cloud refused a push because the payload exceeds the `workspace_size` constraint. */
+export const workspaceTooLarge = (failure: unknown): boolean =>
+  String((failure as { message?: string })?.message).includes("workspace_size");
 export async function pushRemote(
   store: Store,
   revision: number,

@@ -251,6 +251,8 @@ export const en: Record<MessageKey, string> = {
     "A draft packet is created. Adapt the text and check the facts.",
   "toast.profileSaved": "Profile saved",
   "toast.imported": "Jobs imported: {count}",
+  "toast.importedPartly":
+    "Jobs imported: {count}. Skipped: {skipped} — your space holds up to {max} jobs, and entries with oversized fields are not imported.",
   "toast.settingsSaved": "Settings saved",
   "toast.restored":
     "The copy is restored. The previous version was downloaded separately.",
@@ -529,6 +531,8 @@ export const en: Record<MessageKey, string> = {
     "The browser could not save the changes. Make a backup in settings.",
   "workspace.syncUnavailable":
     "Sync is unavailable. Local changes are saved; we will try again.",
+  "workspace.tooLarge":
+    "The cloud did not accept the changes: your space exceeds 5 MB. The changes stay on this device. Save a backup in settings and shorten the texts of documents or jobs.",
   "workspace.localCorrupted":
     "The local copy is damaged. It was not overwritten. Restore a backup through settings.",
   "workspace.cloudOpenFailed":
@@ -536,6 +540,14 @@ export const en: Record<MessageKey, string> = {
   "workspace.readFailed":
     "The saved space could not be read. The original copy is kept for recovery; sync is paused.",
   "workspace.backupFailed": "Could not create a copy. Export the data first.",
+  "workspace.changeRejected": "The change was not saved. {reason}",
+  "workspace.limit.jobs": "Too many jobs: your space holds up to {max}.",
+  "workspace.limit.applications":
+    "Too many saved jobs and applications: your space holds up to {max}.",
+  "workspace.limit.packets":
+    "Too many document packets: your space holds up to {max}.",
+  "workspace.limit.size":
+    "Your space is too large: all data together must fit within 5 MB.",
 
   "error.format": "Invalid data format.",
   "error.textField": "An invalid or oversized text field.",
@@ -550,7 +562,6 @@ export const en: Record<MessageKey, string> = {
   "error.salaryAmount": "Invalid pay amount.",
   "error.settings": "Invalid settings.",
   "error.lists": "Invalid list of jobs or documents.",
-  "error.tooManyApplications": "Too many applications.",
   "error.applicationState": "Invalid application state.",
   "error.packetVersion": "Invalid packet version.",
   "error.packetRequirements": "Add a CV and the full job description.",

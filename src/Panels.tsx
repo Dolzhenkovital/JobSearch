@@ -78,6 +78,12 @@ export function SettingsPanel({
     [authMessage, setAuthMessage] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const [restore, setRestore] = useState<Store | null>(null);
+  const [rejected, setRejected] = useState("");
+  // The dialog covers the toast, so a rejected change is also shown inside it.
+  const reject = (error: unknown) => {
+    setRejected((error as Error).message);
+    notify((error as Error).message);
+  };
   // The open sign-out confirmation: whether to delete this browser's copy, and
   // whether deleting changes the cloud has not received was explicitly confirmed.
   const [signOutChoice, setLeaving] = useState<{
@@ -165,6 +171,7 @@ export function SettingsPanel({
       title={t("settings.title")}
       subtitle={t("settings.subtitle")}
       onClose={onClose}
+      alert={rejected}
     >
       <div
         className="modal-tabs"
@@ -190,10 +197,15 @@ export function SettingsPanel({
             id="settings-form"
             onSubmit={(event) => {
               event.preventDefault();
-              workspace.update((s) => ({
-                ...s,
-                settings: { ...s.settings, ...changes },
-              }));
+              try {
+                workspace.update((s) => ({
+                  ...s,
+                  settings: { ...s.settings, ...changes },
+                }));
+              } catch (error) {
+                reject(error);
+                return;
+              }
               notify(t("toast.settingsSaved"));
               onClose();
             }}
@@ -516,9 +528,14 @@ export function SettingsPanel({
                         JSON.stringify(workspace.store, null, 2),
                         "application/json",
                       );
-                      workspace.update(() => restore);
+                      try {
+                        workspace.update(() => restore);
+                        setRejected("");
+                        notify(t("toast.restored"));
+                      } catch (error) {
+                        reject(error);
+                      }
                       setRestore(null);
-                      notify(t("toast.restored"));
                     }}
                   >
                     {t("common.restore")}
@@ -753,9 +770,11 @@ export function ProfilePanel({
 export function JobForm({
   onSave,
   onClose,
+  alert,
 }: {
-  onSave: (job: Job) => void;
+  onSave: (job: Job) => boolean;
   onClose: () => void;
+  alert?: string;
 }) {
   const [draft, setDraft] = useState({
     title: "",
@@ -775,6 +794,7 @@ export function JobForm({
       title={t("job.add")}
       subtitle={t("jobForm.subtitle")}
       onClose={onClose}
+      alert={alert}
     >
       <form
         onSubmit={(event) => {
@@ -797,7 +817,7 @@ export function JobForm({
           const jb = url.match(
             /^https:\/\/(?:www\.)?jobbank\.gc\.ca\/jobsearch\/jobposting\/(\d+)/,
           );
-          onSave({
+          const saved = onSave({
             id: jb
               ? `jobbank:${jb[1]}`
               : `manual:${contentVersion(url || `${draft.title}|${draft.employer}|${draft.location}`)}`,
@@ -814,7 +834,8 @@ export function JobForm({
             checkedAt: now,
             availability: "unknown",
           });
-          onClose();
+          // Keep the form open when the workspace rejects the job, so the text is not lost.
+          if (saved) onClose();
         }}
       >
         <div className="modal-body">
@@ -915,7 +936,7 @@ export function DocumentsPanel({
   jobs: Job[];
   profile: Profile;
   settings: Settings;
-  onUpdate: (p: Packet) => void;
+  onUpdate: (p: Packet) => boolean;
   onPrepare: () => void;
   notify: Notify;
   onPrint: (p: Packet) => void;
@@ -1110,8 +1131,8 @@ export function DocumentsPanel({
               !!packet.frozenAt || !packet.cv.trim() || !packet.letter.trim()
             }
             onClick={() => {
-              onUpdate({ ...packet, approvedAt: new Date().toISOString() });
-              notify(t("toast.packetApproved"));
+              if (onUpdate({ ...packet, approvedAt: new Date().toISOString() }))
+                notify(t("toast.packetApproved"));
             }}
           >
             <CheckCheck size={17} />
