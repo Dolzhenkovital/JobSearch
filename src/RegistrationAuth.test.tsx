@@ -32,9 +32,10 @@ it('requires a code only for registration and preserves ordinary sign-in', async
   expect(mock.signIn).toHaveBeenCalled(); expect(mock.check).not.toHaveBeenCalled();
   await act(async () => container.querySelector<HTMLButtonElement>('.switch-auth')!.click());
   expect(input('Промокод').required).toBe(true);
+  await edit('Пароль', 'synthetic-password');
   await edit('Промокод', 'BETA');
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
-  expect(mock.register).toHaveBeenCalledWith('synthetic@example.invalid', '', 'BETA');
+  expect(mock.register).toHaveBeenCalledWith('synthetic@example.invalid', 'synthetic-password', 'BETA');
   expect(container.textContent).toContain('Перевірте пошту');
 });
 it('blocks submission when registration requirements are unavailable and permits refresh', async () => {

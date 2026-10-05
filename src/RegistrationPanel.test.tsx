@@ -19,7 +19,7 @@ async function edit(element: HTMLInputElement | HTMLSelectElement, value: string
 beforeEach(async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-  state = { mode: 'promo', revision: 3, page: 1, hasMore: false, codes: [
+  state = { mode: 'promo', revision: 3, page: 1, hasMore: false, hasActiveCode: false, codes: [
     { id: 'limited', code: 'LIMITED', maxActivations: 2, activations: 2, enabled: true, revision: 1, createdAt: '2026-10-05' },
     { id: 'unlimited', code: 'UNLIMITED', maxActivations: null, activations: 5, enabled: false, revision: 4, createdAt: '2026-10-05' },
   ] };
@@ -28,9 +28,18 @@ beforeEach(async () => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 it('renders exhausted limits and disabled unlimited codes with their actual counts', () => {
+  expect(container.textContent).toContain('Без активного промокоду');
   expect(container.textContent).toContain('Активації вичерпано');
   expect(container.textContent).toContain('Зареєстровано: 2 із 2. Залишилося: 0.');
   expect(container.textContent).toContain('Зареєстровано: 5. Без обмеження активацій.');
+});
+it('uses the server aggregate across pages and formats large counts for the interface locale', async () => {
+  state.hasActiveCode = true;
+  state.codes[0].maxActivations = 1000000;
+  state.codes[0].activations = 2000;
+  await act(async () => button('Оновити').click());
+  expect(container.textContent).not.toContain('Без активного промокоду');
+  expect(container.textContent).toContain(new Intl.NumberFormat('uk-UA').format(1000000));
 });
 it('sends revision-checked mode changes and enables an unlimited code without resetting its count', async () => {
   await edit(container.querySelector('select')!, 'free');

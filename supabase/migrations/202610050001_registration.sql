@@ -28,23 +28,24 @@ alter table private.promo_codes enable row level security;
 alter table private.promo_registrations enable row level security;
 revoke all on private.registration_settings, private.promo_codes, private.promo_registrations from public, anon, authenticated;
 
--- The only public information is the mode and validity of one supplied code, never a code list/count.
-create function public.registration_check(p_code text default '') returns jsonb
+-- Public callers can discover the mode, never probe whether a supplied code is valid.
+-- Code checks stay in Supabase Auth, where signup rate limits apply.
+create function public.registration_mode() returns jsonb
 language sql stable security definer set search_path = '' as $$
-  select jsonb_build_object('mode', s.mode, 'valid', s.mode = 'free' or exists (
-    select 1 from private.promo_codes p where p.code = upper(btrim(left(p_code, 65)))
-      and p.enabled and (p.max_activations is null or p.activations < p.max_activations)
-  )) from private.registration_settings s where s.id;
+  select jsonb_build_object('mode', mode) from private.registration_settings where id;
 $$;
-revoke all on function public.registration_check(text) from public;
-grant execute on function public.registration_check(text) to anon, authenticated;
+revoke all on function public.registration_mode() from public;
+grant execute on function public.registration_mode() to anon, authenticated;
 
 -- Optional Before User Created hook provides a readable Auth error. The trigger below remains
 -- authoritative, so forgetting to configure the hook cannot open registration or exceed quotas.
 create function public.registration_before_user_created(event jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 begin
-  if not (public.registration_check(event->'user'->'user_metadata'->>'registration_promo_code')->>'valid')::boolean then
+  if not exists(select 1 from private.registration_settings where id and mode = 'free')
+    and not exists(select 1 from private.promo_codes
+      where code = upper(btrim(left(event->'user'->'user_metadata'->>'registration_promo_code', 65)))
+        and enabled and (max_activations is null or activations < max_activations)) then
     return jsonb_build_object('error', jsonb_build_object('http_code', 400, 'message', 'promo_code_inactive'));
   end if;
   return '{}'::jsonb;
@@ -86,6 +87,8 @@ begin
   if not exists(select 1 from public.app_admins where user_id = p_actor) then raise exception 'admin_required'; end if;
   if p_page is null or p_page < 1 or p_page > 10000 then raise exception 'invalid_input'; end if;
   select jsonb_build_object('mode', mode, 'revision', revision, 'page', p_page,
+    'hasActiveCode', exists(select 1 from private.promo_codes where enabled
+      and (max_activations is null or activations < max_activations)),
     'hasMore', (select count(*) > p_page * 50 from private.promo_codes),
     'codes', coalesce((select jsonb_agg(to_jsonb(c)) from (
       select id, code, max_activations as "maxActivations", activations, enabled, revision, created_at as "createdAt"
@@ -110,8 +113,9 @@ begin
   if p_code is null or upper(btrim(p_code)) !~ '^[A-Z0-9_-]{4,64}$' or (p_max is not null and (p_max < 1 or p_max > 1000000)) then
     raise exception 'invalid_input';
   end if;
-  insert into private.promo_codes(code, max_activations) values(upper(btrim(p_code)), p_max);
-exception when unique_violation then raise exception 'promo_code_exists';
+  insert into private.promo_codes(code, max_activations) values(upper(btrim(p_code)), p_max)
+    on conflict (code) do nothing;
+  if not found then raise exception 'promo_code_exists'; end if;
 end;
 $$;
 create function public.registration_toggle_code(p_actor uuid, p_id uuid, p_enabled boolean, p_revision bigint) returns void

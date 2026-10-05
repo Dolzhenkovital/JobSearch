@@ -37,7 +37,8 @@ describe('registration quotas enforced by the Auth insert transaction', () => {
   afterAll(() => db.close());
   it('starts promo-only and blocks direct Auth creation without a valid code, including without the hook', async () => {
     await role('anon');
-    expect((await db.query<{ result: unknown }>('select public.registration_check() result')).rows[0].result).toEqual({ mode: 'promo', valid: false });
+    expect((await db.query<{ result: unknown }>('select public.registration_mode() result')).rows[0].result).toEqual({ mode: 'promo' });
+    await expect(db.query("select public.registration_check('GUESS')")).rejects.toThrow('does not exist');
     await expect(signup()).rejects.toThrow('promo_code_inactive');
     await expect(signup('UNKNOWN')).rejects.toThrow('promo_code_inactive');
     await role('postgres');
@@ -50,8 +51,6 @@ describe('registration quotas enforced by the Auth insert transaction', () => {
     await expect(signup('LIMITED')).rejects.toThrow('promo_code_inactive');
     expect(await count('LIMITED')).toBe(2);
     expect((await db.query<{ raw_user_meta_data: unknown }>('select raw_user_meta_data from auth.users where id=$1', [user])).rows[0].raw_user_meta_data).toEqual({ display_name: 'Synthetic' });
-    await role('anon');
-    expect((await db.query<{ result: { valid: boolean } }>("select public.registration_check('LIMITED') result")).rows[0].result.valid).toBe(false);
   });
   it('does not spend a code on a failed account transaction or recreate an existing account', async () => {
     await create('ROLLBACK', 1);
@@ -121,5 +120,15 @@ describe('registration quotas enforced by the Auth insert transaction', () => {
     expect((await hook('HOOK')).rows[0].result).toEqual({});
     expect((await hook('LIMITED')).rows[0].result).toEqual({ error: { http_code: 400, message: 'promo_code_inactive' } });
     expect(await count('HOOK')).toBe(0);
+  });
+  it('reports whether any usable code exists independently of the requested page', async () => {
+    await role('postgres');
+    await db.exec('begin; update private.promo_codes set enabled = false;');
+    await role('service_role');
+    const state = () => db.query<{ result: { codes: unknown[]; hasActiveCode: boolean } }>('select public.registration_admin_state($1,2) result', [admin]);
+    expect((await state()).rows[0].result).toMatchObject({ codes: [], hasActiveCode: false });
+    await db.query('select public.registration_create_code($1,$2,1)', [admin, 'OTHER-PAGE']);
+    expect((await state()).rows[0].result).toMatchObject({ codes: [], hasActiveCode: true });
+    await db.exec('rollback');
   });
 });
