@@ -3,7 +3,31 @@ import { KeyRound,LoaderCircle,RefreshCw,Save,Trash2,Users,Sparkles,Mail } from 
 import {SmtpPanel} from './SmtpPanel';
 import { Field,Modal,formatDate } from './ui';
 import { useI18n } from './i18n';
-import { serviceCall,EFFORTS,type Account,type PublicLlmConfig } from './service';
+import { serviceCall,EFFORTS,RULES_VERSION,type Account,type PublicLlmConfig,type ServiceStatus } from './service';
+
+/** The site is published automatically after a merge, jobsearch-api only manually: warn when their LLM rules differ. */
+function RulesNotice({request}:{request:typeof serviceCall}){
+  const {t}=useI18n();
+  // undefined while checking; null when the function predates reporting its version.
+  const [deployed,setDeployed]=useState<string|null>(),[failure,setFailure]=useState<string|null>(null);
+  useEffect(()=>{
+    let live=true;
+    request<ServiceStatus>('status').then(status=>{if(live)setDeployed(status.rulesVersion||null);},
+      e=>{if(live)setFailure((e as Error).message);});
+    return()=>{live=false;};
+  },[request]);
+  // An unchecked version is reported as such, not as a mismatch, and does not hide the settings form.
+  if(failure!==null)return <div className="notice" role="status">{t('admin.llm.rules.failed',{error:failure})}</div>;
+  if(deployed===undefined||deployed===RULES_VERSION)return null;
+  return <div className="notice" role="alert">
+    <strong>{t(deployed?'admin.llm.rules.mismatch':'admin.llm.rules.missing')}</strong>
+    <dl className="rules-versions">
+      <dt>{t('admin.llm.rules.deployed')}</dt><dd>{deployed||'—'}</dd>
+      <dt>{t('admin.llm.rules.interface')}</dt><dd>{RULES_VERSION}</dd>
+    </dl>
+    <p>{t('admin.llm.rules.action')}</p>
+  </div>;
+}
 
 export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{onClose:()=>void;notify:(s:string)=>void;onConfigChange:()=>void;request?:typeof serviceCall}){
   const {t}=useI18n();
@@ -65,6 +89,7 @@ export function AdminPanel({onClose,notify,onConfigChange,request=serviceCall}:{
           <div className="button-row"><button className="button secondary" disabled={busy} onClick={()=>setTarget(null)}>{t('common.cancel')}</button><button className="button danger" disabled={busy||confirmation!==target.email} onClick={()=>void accountAction('delete_user',target)}>{t('admin.delete.button')}</button></div>
         </section>}
       </>}
+      {tab==='llm'&&<RulesNotice request={request}/>}
       {tab==='llm'&&config&&<form onSubmit={async event=>{
         event.preventDefault();setBusy(true);setError('');
         try{

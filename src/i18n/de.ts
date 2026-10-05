@@ -513,6 +513,16 @@ export const de: Record<MessageKey, string> = {
   "admin.llm.note":
     "Vor dem Aufruf werden eine vorsichtige Schätzung der Eingabe und die maximale Antwort reserviert. Nach Abschluss wird die vom Anbieter gemeldete Nutzung gezählt; bei unbekanntem Ergebnis die Reserve. Der Anbieter muss JSON Schema für das gewählte Modell und Format unterstützen.",
   "admin.llm.save": "LLM speichern",
+  "admin.llm.rules.missing":
+    "Die bereitgestellte Funktion jobsearch-api meldet keine Version der LLM-Regeln: Sie wurde vor Einführung dieser Prüfung bereitgestellt.",
+  "admin.llm.rules.mismatch":
+    "Die bereitgestellte Funktion jobsearch-api verwendet eine andere Version der LLM-Regeln als diese Oberfläche.",
+  "admin.llm.rules.deployed": "Funktion",
+  "admin.llm.rules.interface": "Oberfläche",
+  "admin.llm.rules.action":
+    "Stellen Sie jobsearch-api erneut aus dem Commit bereit, aus dem diese Website veröffentlicht wurde (docs/admin-llm.md, Bereitstellung, Schritt 3). Wurde die Funktion bereits aktualisiert, laden Sie die Seite neu.",
+  "admin.llm.rules.failed":
+    "Die Version der Regeln von jobsearch-api konnte nicht geprüft werden: {error}",
 
   "smtp.title": "E-Mail für Registrierung und Wiederherstellung",
   "smtp.note":

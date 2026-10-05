@@ -1,6 +1,7 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {createHandler} from '../supabase/functions/_shared/handler';
+import {RULES_VERSION} from '../supabase/functions/_shared/llm';
 const uid='00000000-0000-4000-8000-000000000001',rid='00000000-0000-4000-8000-000000000011';
 let allowed=false,existing:unknown=null;
 const listUsers=vi.fn(),deleteUser=vi.fn(),recovery=vi.fn(),provider=vi.fn(),rpc=vi.fn();
@@ -113,5 +114,16 @@ describe('server authentication and provider boundary',()=>{
     expect(tailor.run.result.unsupportedNumbers).toEqual({lines:[{document:'cv',line:'Grew sales 40%.',numbers:['40%']}],omitted:0});
     expect(tailor.run.result.questions).toEqual([]);
     expect(rpc.mock.calls.filter(([name])=>name==='llm_complete').map(([,args])=>args.p_input_tokens)).toEqual([10,10]);
+  });
+});
+describe('service status',()=>{
+  it('reports the deployed rules version to a signed-in user without the provider key',async()=>{
+    const response=await make()(request('status'));
+    expect(response.status).toBe(200);
+    const status=await response.json();
+    expect(status).toEqual({isAdmin:false,configured:true,monthlyTokenBudget:0,
+      usage:{used_tokens:0,reserved_tokens:0,month:expect.stringMatching(/^\d{4}-\d{2}-01$/)},rulesVersion:RULES_VERSION});
+    expect(JSON.stringify(status)).not.toContain('synthetic-private-key');
+    expect(provider).not.toHaveBeenCalled();
   });
 });
