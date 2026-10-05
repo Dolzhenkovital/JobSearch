@@ -24,12 +24,29 @@ feature-гілка ──PR──▶ stage ──(деплой)──▶ https:/
 | Перевірка | Workflow | Що робить |
 | --- | --- | --- |
 | `Promotion path` | `ci.yml` | У `main` приймає лише PR зі `stage` цього репозиторію. |
-| `Lint` | `ci.yml` | `npm run lint` (oxlint), `npm run typecheck` (tsc), `pyflakes` для збирача. |
+| `Lint` | `ci.yml` | `npm run lint` (oxlint), `npm run typecheck` (tsc), `pyflakes` для збирача, `deno check` для Edge Function `jobsearch-api` у Deno 2.1.4, як у Supabase Edge Runtime (див. [нижче](#перевірка-edge-function-у-deno)). |
 | `Unit tests` | `ci.yml` | `npm test` (Vitest, включно з PGlite-перевірками міграцій) і Python-тести збирача. |
 | `Smoke tests` | `ci.yml` | Збирає сайт для цільового середовища та запускає Playwright (`e2e/`) на desktop і mobile. |
 | `Code review` | `code-review.yml` | Автоматичне рев'ю зовнішньою LLM, результат публікується коментарем у PR. |
 
 `Smoke tests` перевіряють: завантаження без помилок у консолі, визначення мови браузера, перемикання uk/en/fr/de та збереження вибору, усі розділи, відсутність горизонтального скролу, додавання вакансії вручну, німецьку у списку мов документів. Стрічка вакансій підміняється синтетичною (`e2e/fixtures/jobs.json`), тож перевірка не залежить від Job Bank.
+
+### Перевірка Edge Function у Deno
+
+`supabase/functions/jobsearch-api/index.ts` і `supabase/functions/_shared/*.ts` виконуються в Supabase Edge Runtime (Deno). `npm run typecheck` не бачить `index.ts`, а `_shared/*.ts` перевіряє лише як код вебзастосунку: через імпорти з `src/`, з типами DOM і Node та з `@supabase/supabase-js` із `node_modules`. Тому job `Lint` запускає ще й `deno check` і резолвить імпорти так само, як рантайм:
+
+- **Deno 2.1.4.** Цю версію вбудовано в Supabase Edge Runtime (`deno/Cargo.toml` у [supabase/edge-runtime](https://github.com/supabase/edge-runtime); перевірено для v1.77.4 на 2026-10-02), тож перевірка використовує типи API `Deno` і JavaScript тієї ж версії Deno, що й рантайм: API новіших версій Deno її не пройде. Deno встановлює `denoland/setup-deno`, закріплений за SHA коміту.
+- **Import map із `supabase/functions/deno.json`.** Саме цей файл `supabase/config.toml` задає як `import_map` для `jobsearch-api`, а Edge Runtime під час бандлингу використовує його як конфігурацію Deno; він відображає `@supabase/supabase-js` на `npm:@supabase/supabase-js@2.117.2`. Тому CI передає його через `--config`. Без цього прапорця Deno, запущений із кореня репозиторію, узяв би `package.json` і `node_modules` вебзастосунку.
+- **Версії з `supabase/functions/deno.lock`.** Edge Runtime читає lock-файл поруч із цією конфігурацією, а формат v5 спершу перетворює на v4: Deno 2.1.4 читає лише до v4. CI робить те саме перетворення скриптом [`deno_lock_v4.py`](../.github/scripts/deno_lock_v4.py) у тимчасовий файл; закомічений lock не змінюється.
+- **`--frozen`.** Перевірка червона, якщо lock не фіксує весь граф залежностей, наприклад після зміни версії в `deno.json` без оновлення `deno.lock`.
+
+Щоб оновити lock після зміни `deno.json`, виконайте з кореня репозиторію команду нижче в Deno 2.3 або новішому (вони читають і пишуть формат v5; Deno 2.1.4 lock v5 не прочитає) і закомітьте `supabase/functions/deno.lock`:
+
+```bash
+deno check --config supabase/functions/deno.json supabase/functions/jobsearch-api/index.ts
+```
+
+Коли Supabase оновить Deno у рантаймі, змініть `deno-version` у `ci.yml` і цей розділ. Зелена перевірка типів не означає, що функцію розгорнуто: Edge Function розгортається вручну (див. [Середовища](#середовища)).
 
 ## Код-рев'ю зовнішньою LLM
 
@@ -111,6 +128,16 @@ npm run build
 npm run test:smoke
 ```
 
+Deno-перевірка Edge Function так, як у CI, потребує встановленого Deno 2.1.4. Перша команда кладе lock у форматі v4 в ігнорований `work/`, друга перевіряє типи:
+
+```bash
+python .github/scripts/deno_lock_v4.py supabase/functions/deno.lock work/deno.lock
+```
+
+```bash
+deno check --frozen --config supabase/functions/deno.json --lock=work/deno.lock supabase/functions/jobsearch-api/index.ts
+```
+
 Перед першим запуском smoke-тестів один раз встановіть браузер: `npx playwright install chromium`. Тести використовують збірку з `dist`, тому спершу виконайте `npm run build`. Для stage-варіанта задайте `JOBSEARCH_BASE=/JobSearch/stage/` та `VITE_APP_ENV=stage` і для збірки, і для тестів (у Git Bash на Windows додайте `MSYS2_ENV_CONV_EXCL=JOBSEARCH_BASE`, інакше шлях буде перетворено).
 
 ## Правила гілок
@@ -125,5 +152,6 @@ npm run test:smoke
 
 - Локально: `npm run lint`, `npm run typecheck`, `npm test`, Python-тести, `npm run build`, smoke-тести для прод-збірки (з публічною конфігурацією Supabase і без неї) та для stage-збірки.
 - Workflow-файли перевірено на синтаксис YAML; генерацію промпта для рев'ю виконано локально на синтетичних даних.
+- Deno-перевірку Edge Function (2026-10-02) виконано лише в GitHub Actions, бо локально Deno не встановлено. У [запуску CI](https://github.com/Dolzhenkovital/JobSearch/actions/runs/37070019154) job `Lint` встановив Deno 2.1.4, завантажив з npm `@supabase/supabase-js` 2.117.2 і його залежності у версіях із `deno.lock` і помилок типів не знайшов. Негативний контроль у тимчасовій гілці: з навмисною помилкою типу в `index.ts` `npm run lint` і `npm run typecheck` пройшли, а `deno check` зробив `Lint` червоним ([запуск](https://github.com/Dolzhenkovital/JobSearch/actions/runs/37070210039)). Перетворення lock перевірено локально на прикладах із тестів Edge Runtime, `ci.yml` — actionlint 1.7.12.
 - Виконання `Code review` у GitHub Actions залежить від налаштувань LLM, яких на момент написання ще не додано: цей workflow наживо не перевірено.
 - Перший спільний деплой прод + stage відбудеться після злиття у `stage`. Поки нові workflow не потраплять у `main`, старий workflow на `main` (за розкладом двічі на добу) публікує сайт без `stage/`, тож адреса stage може тимчасово зникати до наступного запуску `Deploy`.
