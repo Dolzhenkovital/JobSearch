@@ -1,5 +1,11 @@
 [functions.jobsearch-api]
-# The handler always validates the caller with Auth getUser before handling any action.
+# The handler validates the caller with Auth getUser before handling any action.
 # This also supports projects using asymmetric JWT signing keys.
 verify_jwt = false
 import_map = "./functions/deno.json"
+
+# For local Auth. Hosted projects: enable this Postgres hook in Authentication → Hooks.
+# The migration's auth.users trigger enforces quotas even when the optional hook is unconfigured.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/registration_before_user_created"

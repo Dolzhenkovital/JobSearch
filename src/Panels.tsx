@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   ArrowRight,
   Check,
@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { cloud } from "./cloud";
+import { checkRegistration, registerAccount, type RegistrationCheck } from './registration';
 import {
   aiPrompt,
   contentVersion,
@@ -78,6 +79,18 @@ export function SettingsPanel({
     [register, setRegister] = useState(false),
     [busy, setBusy] = useState(false),
     [authMessage, setAuthMessage] = useState("");
+  const [promoCode, setPromoCode] = useState('');
+  const [registration, setRegistration] = useState<RegistrationCheck | null>(null);
+  const [registrationError, setRegistrationError] = useState('');
+  const authInFlight = useRef(false);
+  useEffect(() => {
+    if (!register || workspace.user || !workspace.configured) return;
+    let live = true;
+    setRegistration(null); setRegistrationError('');
+    checkRegistration().then(value => { if (live) setRegistration(value); },
+      failure => { if (live) setRegistrationError((failure as Error).message); });
+    return () => { live = false; };
+  }, [register, accountId, workspace.user, workspace.configured]);
   const input = useRef<HTMLInputElement>(null);
   const [restore, setRestore] = useState<Store | null>(null);
   const [rejected, setRejected] = useState("");
@@ -107,27 +120,32 @@ export function SettingsPanel({
     }));
   async function login(event: React.FormEvent) {
     event.preventDefault();
-    if (!cloud) return;
+    if (!cloud || authInFlight.current) return;
+    authInFlight.current = true;
     setBusy(true);
     setAuthMessage("");
     try {
       const { error, data } = register
-        ? await cloud.auth.signUp({
-            email,
-            password,
-            options: {
-              emailRedirectTo: `${location.origin}${import.meta.env.BASE_URL}`,
-            },
-          })
+        ? await registerAccount(email, password, promoCode)
         : await cloud.auth.signInWithPassword({ email, password });
       if (error) throw error;
       setPassword("");
+      setPromoCode('');
+      if (register) {
+        setRegister(false); setRegistration(null); setRegistrationError('');
+      }
       if (register && !data.session)
         setAuthMessage(t("auth.checkEmail"));
       else notify(t("auth.signedIn"));
     } catch (error) {
       setAuthMessage((error as Error).message || t("auth.failed"));
+      // The administrator may have changed the mode while this form was open.
+      if (register) {
+        try { setRegistration(await checkRegistration()); setRegistrationError(''); }
+        catch { setRegistration(null); setRegistrationError(t('registration.unavailable')); }
+      }
     } finally {
+      authInFlight.current = false;
       setBusy(false);
     }
   }
@@ -439,7 +457,21 @@ export function SettingsPanel({
                     )}
                   />
                 </Field>
-                <button className="button primary full-width" disabled={busy}>
+                {register && <>
+                  {registration?.mode === 'promo' && <Field label={t('registration.code')} hint={t('registration.required')}>
+                    <input required maxLength={64} autoComplete="off" value={promoCode} onChange={event => setPromoCode(event.target.value)}/>
+                  </Field>}
+                  {!registration && !registrationError && <p role="status">{t('common.processing')}</p>}
+                  {registrationError && <div className="notice error" role="alert">{registrationError}
+                    <button type="button" className="text-link" disabled={busy} onClick={async () => {
+                      setBusy(true);
+                      try { setRegistration(await checkRegistration()); setRegistrationError(''); }
+                      catch (failure) { setRegistrationError((failure as Error).message); }
+                      finally { setBusy(false); }
+                    }}>{t('common.refresh')}</button>
+                  </div>}
+                </>}
+                <button className="button primary full-width" disabled={busy || (register && !registration)}>
                   {busy ? (
                     <LoaderCircle size={18} className="spin" />
                   ) : (
@@ -450,7 +482,9 @@ export function SettingsPanel({
                 <button
                   type="button"
                   className="switch-auth"
+                  disabled={busy}
                   onClick={() => {
+                    setRegistration(null); setRegistrationError(''); setPromoCode('');
                     setRegister(!register);
                     setAuthMessage("");
                   }}

@@ -28,9 +28,23 @@ beforeEach(()=>{
 describe('server authentication and provider boundary',()=>{
   it('rejects unauthenticated and non-admin access before privileged actions',async()=>{
     expect((await make()(request('list_users',{},false))).status).toBe(401);
-    for(const action of ['list_users','get_config','save_config','delete_user','reset_password','get_smtp','save_smtp'])
+    for(const action of ['list_users','get_config','save_config','delete_user','reset_password','get_smtp','save_smtp',
+      'get_registration','set_registration_mode','create_promo_code','toggle_promo_code'])
       expect((await make()(request(action))).status).toBe(403);
     expect(listUsers).not.toHaveBeenCalled();expect(deleteUser).not.toHaveBeenCalled();expect(rpc).not.toHaveBeenCalled();
+  });
+  it('validates registration mutations and binds them to the authenticated administrator',async()=>{
+    allowed=true;
+    expect((await make()(request('create_promo_code',{code:' beta ',maxActivations:2,actor:'forged-user'}))).status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('registration_create_code',{p_actor:uid,p_code:'BETA',p_max:2});
+    expect((await make()(request('create_promo_code',{code:'OPEN',maxActivations:null}))).status).toBe(200);
+    for(const payload of [{code:'bad code',maxActivations:1},{code:'CODE',maxActivations:0},{code:'CODE',maxActivations:'2'},{code:'CODE'}])
+      expect((await make()(request('create_promo_code',payload))).status).toBe(400);
+    expect((await make()(request('set_registration_mode',{mode:'free',revision:1}))).status).toBe(200);
+    expect((await make()(request('set_registration_mode',{mode:'other',revision:1}))).status).toBe(400);
+    expect((await make()(request('toggle_promo_code',{id:rid,enabled:false,revision:1}))).status).toBe(200);
+    expect((await make()(request('toggle_promo_code',{id:rid,enabled:'false',revision:1}))).status).toBe(400);
+    expect((await make()(request('get_registration',{page:0}))).status).toBe(400);
   });
   it('never returns the API key to the admin browser',async()=>{
     allowed=true;
