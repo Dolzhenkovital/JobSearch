@@ -50,17 +50,22 @@ const SETTINGS_TABS = [
   { id: "sync", title: "settings.tab.sync", icon: Cloud },
   { id: "data", title: "settings.tab.data", icon: HardDrive },
 ] as const;
-export function SettingsPanel({
-  workspace,
-  onClose,
-  notify,
-  initialTab = "search",
-}: {
+type SettingsPanelProps = {
   workspace: Workspace;
   onClose: () => void;
   notify: Notify;
   initialTab?: string;
-}) {
+};
+// A new account/configuration gets a fresh form, including credentials and promo code.
+export function SettingsPanel(props: SettingsPanelProps) {
+  return <SettingsPanelContents key={`${props.workspace.user?.id || 'guest'}:${props.workspace.configured}`} {...props}/>;
+}
+function SettingsPanelContents({
+  workspace,
+  onClose,
+  notify,
+  initialTab = "search",
+}: SettingsPanelProps) {
   const { t } = useI18n();
   const [tab, setTab] = useState(initialTab);
   const accountId = workspace.user?.id || null;
@@ -83,6 +88,11 @@ export function SettingsPanel({
   const [registration, setRegistration] = useState<RegistrationCheck | null>(null);
   const [registrationError, setRegistrationError] = useState('');
   const authInFlight = useRef(false);
+  const authActive = useRef(true);
+  useEffect(() => {
+    authActive.current = true;
+    return () => { authActive.current = false; };
+  }, []);
   useEffect(() => {
     if (!register || workspace.user || !workspace.configured) return;
     let live = true;
@@ -128,6 +138,7 @@ export function SettingsPanel({
       const { error, data } = register
         ? await registerAccount(email, password, promoCode)
         : await cloud.auth.signInWithPassword({ email, password });
+      if (!authActive.current) return;
       if (error) throw error;
       setPassword("");
       setPromoCode('');
@@ -138,6 +149,7 @@ export function SettingsPanel({
         setAuthMessage(t("auth.checkEmail"));
       else notify(t("auth.signedIn"));
     } catch (error) {
+      if (!authActive.current) return;
       setAuthMessage((error as Error).message || t("auth.failed"));
       // The administrator may have changed the mode while this form was open.
       if (register) {
@@ -146,7 +158,7 @@ export function SettingsPanel({
       }
     } finally {
       authInFlight.current = false;
-      setBusy(false);
+      if (authActive.current) setBusy(false);
     }
   }
   async function signOut() {

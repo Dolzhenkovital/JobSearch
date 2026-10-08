@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import { beforeEach, afterEach, it, expect, vi, type Mock } from 'vitest';
 import { SettingsPanel } from './Panels';
 import { initialStore } from './domain';
 import type { useWorkspace } from './useWorkspace';
@@ -9,6 +9,11 @@ const mock = vi.hoisted(() => ({ check: vi.fn(), register: vi.fn(), signIn: vi.f
 vi.mock('./cloud', () => ({ cloud: { auth: { signInWithPassword: mock.signIn } } }));
 vi.mock('./registration', () => ({ checkRegistration: mock.check, registerAccount: mock.register }));
 let container: HTMLDivElement, root: Root;
+let workspace: ReturnType<typeof useWorkspace>;
+let notify: Mock<(message: string) => void>;
+async function renderWorkspace() {
+  await act(async () => root.render(<SettingsPanel workspace={workspace} initialTab="sync" onClose={() => {}} notify={notify}/>));
+}
 const button = (name: string) => [...container.querySelectorAll('button')].find(element => element.textContent?.trim() === name)!;
 const input = (name: string) => [...container.querySelectorAll('label')].find(label => label.querySelector('span')?.textContent === name)!.querySelector('input')!;
 async function edit(name: string, value: string) { await act(async () => {
@@ -22,8 +27,9 @@ beforeEach(async () => {
   mock.register.mockResolvedValue({ data: { session: null }, error: null });
   mock.signIn.mockResolvedValue({ data: { session: {} }, error: null });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-  const workspace = { store: initialStore(), configured: true, user: null } as unknown as ReturnType<typeof useWorkspace>;
-  await act(async () => root.render(<SettingsPanel workspace={workspace} initialTab="sync" onClose={() => {}} notify={() => {}}/>));
+  workspace = { store: initialStore(), configured: true, user: null } as unknown as ReturnType<typeof useWorkspace>;
+  notify = vi.fn();
+  await renderWorkspace();
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 it('requires a code only for registration and preserves ordinary sign-in', async () => {
@@ -66,4 +72,45 @@ it('refreshes the mode when an admin restricts a previously open signup form', a
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(input('Промокод').required).toBe(true);
   expect(container.textContent).toContain('Промокод не активний.');
+});
+it('clears credentials, promo code and messages when an account enters and leaves the open form', async () => {
+  await act(async () => container.querySelector<HTMLButtonElement>('.switch-auth')!.click());
+  await edit('Email', 'synthetic@example.invalid'); await edit('Пароль', 'synthetic-password'); await edit('Промокод', 'PRIVATE-CODE');
+  mock.register.mockRejectedValueOnce(new Error('Old account message'));
+  await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(container.textContent).toContain('Old account message');
+  workspace = { ...workspace, user: { id: 'another-account', email: 'another@example.invalid' } } as ReturnType<typeof useWorkspace>;
+  await renderWorkspace();
+  workspace = { ...workspace, user: null };
+  await renderWorkspace();
+  expect(input('Email').value).toBe(''); expect(input('Пароль').value).toBe('');
+  expect(container.textContent).not.toContain('Old account message');
+  expect(container.textContent).not.toContain('Промокод');
+  await act(async () => container.querySelector<HTMLButtonElement>('.switch-auth')!.click());
+  expect(input('Промокод').value).toBe('');
+});
+it('clears credential drafts when cloud configuration becomes unavailable', async () => {
+  await edit('Email', 'synthetic@example.invalid'); await edit('Пароль', 'synthetic-password');
+  workspace = { ...workspace, configured: false }; await renderWorkspace();
+  workspace = { ...workspace, configured: true }; await renderWorkspace();
+  expect(input('Email').value).toBe(''); expect(input('Пароль').value).toBe('');
+});
+it('ignores a late signup result after the form switches account and prevents duplicate submits', async () => {
+  let finish!: (value: unknown) => void;
+  mock.register.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  await act(async () => container.querySelector<HTMLButtonElement>('.switch-auth')!.click());
+  await edit('Email', 'synthetic@example.invalid'); await edit('Пароль', 'synthetic-password'); await edit('Промокод', 'ONCE');
+  await act(async () => {
+    const form = container.querySelector('form')!;
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  expect(mock.register).toHaveBeenCalledTimes(1);
+  workspace = { ...workspace, user: { id: 'another-account', email: 'another@example.invalid' } } as ReturnType<typeof useWorkspace>;
+  await renderWorkspace();
+  await act(async () => finish({ data: { session: {} }, error: null }));
+  expect(notify).not.toHaveBeenCalled();
+  workspace = { ...workspace, user: null }; await renderWorkspace();
+  expect(input('Email').value).toBe(''); expect(input('Пароль').value).toBe('');
+  expect(button('Увійти').disabled).toBe(false);
 });
