@@ -59,9 +59,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
-      - name: Fetch public Job Bank discovery metadata (stage)
-        working-directory: stage
-        run: python scripts/collect_jobbank.py
+      - name: Prepare public Job Bank discovery metadata (stage)
+        run: python stage/.github/scripts/prepare_stage_feed.py production stage
       - name: Build stage
         working-directory: stage
         run: |
