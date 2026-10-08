@@ -1,6 +1,14 @@
 -- Run in the Supabase SQL editor as postgres after the migration.
 -- Synthetic users and workspaces exist only inside this rolled-back transaction.
 begin;
+-- The registration migration closes new accounts by default. Open only this test transaction;
+-- rollback restores the configured mode and removes all synthetic accounts below.
+do $$
+begin
+  if to_regclass('private.registration_settings') is not null then
+    execute 'update private.registration_settings set mode = ''free'' where id';
+  end if;
+end $$;
 select set_config('jobsearch.test_alice', gen_random_uuid()::text, true);
 select set_config('jobsearch.test_bob', gen_random_uuid()::text, true);
 insert into auth.users(id) values

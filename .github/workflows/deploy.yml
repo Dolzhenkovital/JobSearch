@@ -59,9 +59,17 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
-      - name: Fetch public Job Bank discovery metadata (stage)
-        working-directory: stage
-        run: python scripts/collect_jobbank.py
+      - name: Prepare public Job Bank discovery metadata (stage)
+        run: |
+          # Identical collectors should publish the same public snapshot without a second request.
+          if [ "$(git -C production rev-parse HEAD:scripts)" = "$(git -C stage rev-parse HEAD:scripts)" ]; then
+            mkdir -p stage/public
+            cp production/public/jobs.json stage/public/jobs.json
+            echo "Stage uses this deployment's production discovery snapshot."
+          else
+            # Keep stage able to exercise a changed collector before promotion.
+            (cd stage && python scripts/collect_jobbank.py)
+          fi
       - name: Build stage
         working-directory: stage
         run: |
