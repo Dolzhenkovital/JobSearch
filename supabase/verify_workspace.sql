@@ -4,9 +4,12 @@ begin;
 -- The registration migration closes new accounts by default. Open only this test transaction;
 -- rollback restores the configured mode and removes all synthetic accounts below.
 do $$
+declare updated_rows integer;
 begin
   if to_regclass('private.registration_settings') is not null then
     execute 'update private.registration_settings set mode = ''free'' where id';
+    get diagnostics updated_rows = row_count;
+    if updated_rows <> 1 then raise exception 'registration_settings_missing'; end if;
   end if;
 end $$;
 select set_config('jobsearch.test_alice', gen_random_uuid()::text, true);
