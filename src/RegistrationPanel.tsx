@@ -28,16 +28,23 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
   }
   async function change(action: string, payload: Record<string, unknown>) {
     setBusy(true); setError('');
+    const page = action === 'create_promo_code' ? 1 : state?.page || 1;
+    let saved = false;
     try {
       await request(action, payload);
       if (!mounted.current) return;
-      // Refresh after mutation, so activation counts are read from the server.
-      const value = await request<RegistrationState>('get_registration', { page: action === 'create_promo_code' ? 1 : state?.page || 1 });
-      if (!mounted.current) return;
-      setState(value);
+      saved = true;
+      // Once saved, old revisions must not authorize another action if refresh fails.
+      setState(null);
       if (action === 'create_promo_code') setCode('');
       notify(t('registration.saved'));
-    } catch (failure) { if (mounted.current) setError((failure as Error).message); }
+      // Refresh after mutation, so activation counts are read from the server.
+      const value = await request<RegistrationState>('get_registration', { page });
+      if (!mounted.current) return;
+      setState(value);
+    } catch (failure) {
+      if (mounted.current) setError(saved ? t('registration.refreshFailed') : (failure as Error).message);
+    }
     finally { if (mounted.current) setBusy(false); }
   }
   const status = (promo: PromoCode) => !promo.enabled ? 'registration.disabled' :

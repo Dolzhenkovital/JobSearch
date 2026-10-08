@@ -27,6 +27,20 @@ beforeEach(async () => {
   await act(async () => root.render(<RegistrationPanel request={request as typeof serviceCall} notify={notify}/>));
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+it('reports a saved mutation and blocks stale actions when refreshing fails until a successful reload', async () => {
+  await edit(container.querySelector('input')!, 'ONCE');
+  request.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('Network unavailable'));
+  await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(notify).toHaveBeenCalledWith('Налаштування реєстрації збережено.');
+  expect(container.querySelector('[role=alert]')!.textContent).toContain('Зміни збережено');
+  expect(container.querySelector('form')).toBeNull();
+  expect(container.querySelector('select')).toBeNull();
+  expect(button('Оновити').disabled).toBe(false);
+  await act(async () => button('Оновити').click());
+  expect(container.querySelector('[role=alert]')).toBeNull();
+  expect(container.querySelector('input')!.value).toBe('');
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
+});
 it('renders exhausted limits and disabled unlimited codes with their actual counts', () => {
   expect(container.textContent).toContain('Без активного промокоду');
   expect(container.textContent).toContain('Активації вичерпано');
