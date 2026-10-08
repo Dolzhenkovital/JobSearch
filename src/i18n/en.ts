@@ -686,6 +686,7 @@ export const en: Record<MessageKey, string> = {
   'registration.empty': 'No promo codes yet.',
   'registration.countHint': 'An activation is counted when an account is created, before email confirmation. Deleting an account or disabling a code does not return an activation.',
   'registration.saved': 'Registration settings saved.',
+  'registration.refreshFailed': 'Changes were saved, but the list could not be refreshed. Select Refresh before making another change.',
   'registration.accountCode': 'Registration promo code: {code}',
   'registration.required': 'An active promo code is required to create an account.',
   'registration.inactive': 'The promo code is not active. Check the code or contact the administrator.',

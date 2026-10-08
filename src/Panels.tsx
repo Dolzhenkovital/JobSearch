@@ -153,8 +153,12 @@ function SettingsPanelContents({
       setAuthMessage((error as Error).message || t("auth.failed"));
       // The administrator may have changed the mode while this form was open.
       if (register) {
-        try { setRegistration(await checkRegistration()); setRegistrationError(''); }
-        catch { setRegistration(null); setRegistrationError(t('registration.unavailable')); }
+        try {
+          const value = await checkRegistration();
+          if (authActive.current) { setRegistration(value); setRegistrationError(''); }
+        } catch {
+          if (authActive.current) { setRegistration(null); setRegistrationError(t('registration.unavailable')); }
+        }
       }
     } finally {
       authInFlight.current = false;
