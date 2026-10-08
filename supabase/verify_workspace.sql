@@ -1,4 +1,4 @@
--- Run in the Supabase SQL editor as postgres after the migration.
+-- Run in the Supabase SQL editor as postgres after all workspace/admin/registration migrations.
 -- Synthetic users and workspaces exist only inside this rolled-back transaction.
 begin;
 -- The registration migration closes new accounts by default. Open only this test transaction;
@@ -6,11 +6,12 @@ begin;
 do $$
 declare updated_rows integer;
 begin
-  if to_regclass('private.registration_settings') is not null then
-    execute 'update private.registration_settings set mode = ''free'' where id';
-    get diagnostics updated_rows = row_count;
-    if updated_rows <> 1 then raise exception 'registration_settings_missing'; end if;
+  if to_regclass('private.registration_settings') is null then
+    raise exception 'registration_migration_missing: apply 202610050001_registration.sql';
   end if;
+  execute 'update private.registration_settings set mode = ''free'' where id';
+  get diagnostics updated_rows = row_count;
+  if updated_rows <> 1 then raise exception 'registration_settings_missing'; end if;
 end $$;
 select set_config('jobsearch.test_alice', gen_random_uuid()::text, true);
 select set_config('jobsearch.test_bob', gen_random_uuid()::text, true);

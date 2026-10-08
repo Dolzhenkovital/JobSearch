@@ -20,7 +20,7 @@ class StageFeedTests(unittest.TestCase):
             (checkout / "scripts").mkdir(parents=True)
             (checkout / "scripts" / "collect_jobbank.py").write_text("# Synthetic collector\n")
             (checkout / "README.md").write_text(checkout.name)
-            self.git(checkout, "init", "--quiet")
+            self.git(checkout, "init", "--quiet", "--initial-branch=qa")
             self.commit(checkout)
         (self.production / "public").mkdir()
         self.source = self.production / "public" / "jobs.json"
@@ -54,6 +54,20 @@ class StageFeedTests(unittest.TestCase):
         self.source.write_text(json.dumps({**self.feed, "status": "stale", "message": "Source unavailable"}))
         self.assertTrue(share_snapshot(self.production, self.stage))
         self.assertEqual(self.destination.read_bytes(), self.source.read_bytes())
+
+    def test_failed_stage_collector_stops_deployment(self):
+        (self.stage / "scripts" / "collect_jobbank.py").write_text("raise SystemExit(7)\n")
+        self.commit(self.stage)
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("prepare_stage_feed.py")),
+                                 str(self.production), str(self.stage)], capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
+    def test_wrong_cli_arguments_report_usage(self):
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("prepare_stage_feed.py"))],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage:", result.stderr)
 
     def test_missing_source_fails_with_specific_message(self):
         self.source.unlink()

@@ -1,5 +1,6 @@
 """Share public discovery data only when the versioned collectors are identical."""
 import json
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ def share_snapshot(production, stage):
             and type(feed.get("schemaVersion")) is int and feed["schemaVersion"] == 1
             and isinstance(feed.get("jobs"), list)
             and feed.get("status") in ("success", "stale", "error")
+            and "fetchedAt" in feed
             and (feed.get("fetchedAt") is None or isinstance(feed["fetchedAt"], str))
             and isinstance(feed.get("lastAttemptAt"), str)
             and isinstance(feed.get("message"), str)
@@ -35,13 +37,19 @@ def share_snapshot(production, stage):
         raise ValueError(f"Cannot share production discovery snapshot {source}: {error}") from error
     destination = stage / "public" / "jobs.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(content)
+    temporary = destination.with_name("jobs.json.tmp")
+    temporary.write_bytes(content)
+    temporary.replace(destination)
     print(f"Stage shares this run's snapshot: status={feed['status']}; fetchedAt={feed.get('fetchedAt')}")
     return True
 
 
 def main():
-    production, stage = (Path(value).resolve() for value in sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("production", type=Path)
+    parser.add_argument("stage", type=Path)
+    arguments = parser.parse_args()
+    production, stage = arguments.production.resolve(), arguments.stage.resolve()
     if not share_snapshot(production, stage):
         subprocess.run([sys.executable, str(stage / "scripts" / "collect_jobbank.py")], cwd=stage, check=True)
 
