@@ -83,11 +83,14 @@ it('blocks duplicate synchronous mutations and requires refresh after an ambiguo
   request.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectMutation = reject; }));
   await edit(container.querySelector('input')!, 'ONCE');
   const form = container.querySelector('form')!;
+  const refresh = button('Оновити');
   await act(async () => {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    refresh.click();
   });
   expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
+  expect(request.mock.calls.filter(([action]) => action === 'get_registration')).toHaveLength(1);
   await act(async () => {
     rejectMutation(new Error('Connection lost'));
     await Promise.resolve();
@@ -105,4 +108,21 @@ it('blocks duplicate synchronous mutations and requires refresh after an ambiguo
   expect(container.querySelector('input')!.value).toBe('ONCE');
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(2);
+});
+it('serializes refreshes with mutations before React commits a disabled button', async () => {
+  let finishRefresh!: (value: RegistrationState) => void;
+  request.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
+  await edit(container.querySelector('input')!, 'AFTER-REFRESH');
+  const form = container.querySelector('form')!;
+  const refresh = button('Оновити');
+  await act(async () => {
+    refresh.click();
+    refresh.click();
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  expect(request.mock.calls.filter(([action]) => action === 'get_registration')).toHaveLength(2);
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(0);
+  await act(async () => finishRefresh({ ...state, revision: 9 }));
+  await edit(container.querySelector('select')!, 'free');
+  expect(request).toHaveBeenCalledWith('set_registration_mode', { mode: 'free', revision: 9 });
 });
