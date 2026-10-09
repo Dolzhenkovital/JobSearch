@@ -9,6 +9,7 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
   const { t } = useI18n();
   const mounted = useRef(false);
   const mutationInFlight = useRef(false);
+  const reconciled = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const number = new Intl.NumberFormat(locale());
   const [state, setState] = useState<RegistrationState | null>(null);
@@ -23,13 +24,14 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
   }, [request]);
   async function load(page = state?.page || 1) {
     setBusy(true); setError('');
-    try { const value = await request<RegistrationState>('get_registration', { page }); if (mounted.current) setState(value); }
+    try { const value = await request<RegistrationState>('get_registration', { page }); if (mounted.current) { reconciled.current = true; setState(value); } }
     catch (failure) { if (mounted.current) setError((failure as Error).message); }
     finally { if (mounted.current) setBusy(false); }
   }
   async function change(action: string, payload: Record<string, unknown>) {
-    if (mutationInFlight.current) return;
+    if (mutationInFlight.current || !reconciled.current) return;
     mutationInFlight.current = true;
+    reconciled.current = false;
     setBusy(true); setError('');
     const page = action === 'create_promo_code' ? 1 : state?.page || 1;
     let saved = false;
@@ -44,6 +46,7 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
       // Refresh after mutation, so activation counts are read from the server.
       const value = await request<RegistrationState>('get_registration', { page });
       if (!mounted.current) return;
+      reconciled.current = true;
       setState(value);
     } catch (failure) {
       if (mounted.current) {

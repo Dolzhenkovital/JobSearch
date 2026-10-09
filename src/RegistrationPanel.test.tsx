@@ -82,17 +82,26 @@ it('blocks duplicate synchronous mutations and requires refresh after an ambiguo
   let rejectMutation!: (error: Error) => void;
   request.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectMutation = reject; }));
   await edit(container.querySelector('input')!, 'ONCE');
+  const form = container.querySelector('form')!;
   await act(async () => {
-    const form = container.querySelector('form')!;
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
   expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
-  await act(async () => rejectMutation(new Error('Connection lost')));
+  await act(async () => {
+    rejectMutation(new Error('Connection lost'));
+    await Promise.resolve();
+    await Promise.resolve();
+    // Even a retained pre-commit form cannot retry before reconciliation.
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
   expect(container.querySelector('form')).toBeNull();
   expect(container.querySelector('[role=alert]')!.textContent).toContain('Connection lost');
   expect(notify).not.toHaveBeenCalled();
   await act(async () => button('Оновити').click());
+  expect(container.querySelector('[role=alert]')).toBeNull();
+  expect(container.textContent).toContain('Зареєстровано: 2 із 2. Залишилося: 0.');
   expect(container.querySelector('input')!.value).toBe('ONCE');
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(2);
