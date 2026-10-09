@@ -8,6 +8,7 @@ import type { RegistrationMode, RegistrationState, PromoCode } from './registrat
 export function RegistrationPanel({ request = serviceCall, notify }: { request?: typeof serviceCall; notify: (message: string) => void }) {
   const { t } = useI18n();
   const mounted = useRef(false);
+  const mutationInFlight = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const number = new Intl.NumberFormat(locale());
   const [state, setState] = useState<RegistrationState | null>(null);
@@ -27,6 +28,8 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
     finally { if (mounted.current) setBusy(false); }
   }
   async function change(action: string, payload: Record<string, unknown>) {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setBusy(true); setError('');
     const page = action === 'create_promo_code' ? 1 : state?.page || 1;
     let saved = false;
@@ -43,9 +46,14 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
       if (!mounted.current) return;
       setState(value);
     } catch (failure) {
-      if (mounted.current) setError(saved ? t('registration.refreshFailed') : (failure as Error).message);
+      if (mounted.current) {
+        // A lost response can hide a committed change. Reconcile before retrying.
+        setState(null);
+        setError(saved ? t('registration.refreshFailed') :
+          t('registration.refreshRequired', { error: (failure as Error).message }));
+      }
     }
-    finally { if (mounted.current) setBusy(false); }
+    finally { mutationInFlight.current = false; if (mounted.current) setBusy(false); }
   }
   const status = (promo: PromoCode) => !promo.enabled ? 'registration.disabled' :
     promo.maxActivations !== null && promo.activations >= promo.maxActivations ? 'registration.exhausted' : 'registration.active';

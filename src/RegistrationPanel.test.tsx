@@ -73,6 +73,27 @@ it('creates limited and unlimited codes and shows server conflicts inside the pa
   request.mockRejectedValueOnce(new Error('Такий промокод уже існує.'));
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(request).toHaveBeenCalledWith('create_promo_code', { code: 'OTHER', maxActivations: null });
-  expect(container.querySelector('[role=alert]')!.textContent).toBe('Такий промокод уже існує.');
+  expect(container.querySelector('[role=alert]')!.textContent).toContain('Такий промокод уже існує.');
+  expect(container.querySelector('form')).toBeNull();
+  await act(async () => button('Оновити').click());
   expect(container.querySelector('input')!.value).toBe('OTHER');
+});
+it('blocks duplicate synchronous mutations and requires refresh after an ambiguous response', async () => {
+  let rejectMutation!: (error: Error) => void;
+  request.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectMutation = reject; }));
+  await edit(container.querySelector('input')!, 'ONCE');
+  await act(async () => {
+    const form = container.querySelector('form')!;
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
+  await act(async () => rejectMutation(new Error('Connection lost')));
+  expect(container.querySelector('form')).toBeNull();
+  expect(container.querySelector('[role=alert]')!.textContent).toContain('Connection lost');
+  expect(notify).not.toHaveBeenCalled();
+  await act(async () => button('Оновити').click());
+  expect(container.querySelector('input')!.value).toBe('ONCE');
+  await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(2);
 });
