@@ -707,6 +707,7 @@ export const de: Record<MessageKey, string> = {
   'registration.empty': 'Noch keine Aktionscodes.',
   'registration.countHint': 'Eine Aktivierung zählt bei der Kontoerstellung, vor der E-Mail-Bestätigung. Das Löschen eines Kontos oder Deaktivieren eines Codes gibt keine Aktivierung zurück.',
   'registration.saved': 'Registrierungseinstellungen gespeichert.',
+  'registration.refreshRequired': '{error} Aktualisieren Sie die Liste, um den Status vor einem erneuten Versuch zu prüfen.',
   'registration.refreshFailed': 'Die Änderungen wurden gespeichert, aber die Liste konnte nicht aktualisiert werden. Klicken Sie vor einer weiteren Änderung auf Aktualisieren.',
   'registration.accountCode': 'Registrierungscode: {code}',
   'registration.required': 'Zur Kontoerstellung ist ein aktiver Aktionscode erforderlich.',

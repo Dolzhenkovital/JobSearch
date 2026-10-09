@@ -701,6 +701,7 @@ export const fr: Record<MessageKey, string> = {
   'registration.empty': 'Aucun code promotionnel pour le moment.',
   'registration.countHint': 'Une activation est comptée à la création du compte, avant la confirmation du courriel. Supprimer un compte ou désactiver un code ne rend pas d’activation.',
   'registration.saved': 'Paramètres d’inscription enregistrés.',
+  'registration.refreshRequired': '{error} Actualisez la liste pour vérifier son état avant de réessayer.',
   'registration.refreshFailed': 'Les modifications ont été enregistrées, mais la liste n’a pas pu être actualisée. Cliquez sur Actualiser avant une autre modification.',
   'registration.accountCode': 'Code d’inscription : {code}',
   'registration.required': 'Un code promotionnel actif est nécessaire pour créer un compte.',

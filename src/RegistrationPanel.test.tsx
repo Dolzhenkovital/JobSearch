@@ -73,6 +73,56 @@ it('creates limited and unlimited codes and shows server conflicts inside the pa
   request.mockRejectedValueOnce(new Error('Такий промокод уже існує.'));
   await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(request).toHaveBeenCalledWith('create_promo_code', { code: 'OTHER', maxActivations: null });
-  expect(container.querySelector('[role=alert]')!.textContent).toBe('Такий промокод уже існує.');
+  expect(container.querySelector('[role=alert]')!.textContent).toContain('Такий промокод уже існує.');
+  expect(container.querySelector('form')).toBeNull();
+  await act(async () => button('Оновити').click());
   expect(container.querySelector('input')!.value).toBe('OTHER');
+});
+it('blocks duplicate synchronous mutations and requires refresh after an ambiguous response', async () => {
+  let rejectMutation!: (error: Error) => void;
+  request.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectMutation = reject; }));
+  await edit(container.querySelector('input')!, 'ONCE');
+  const form = container.querySelector('form')!;
+  const refresh = button('Оновити');
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    refresh.click();
+  });
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
+  expect(request.mock.calls.filter(([action]) => action === 'get_registration')).toHaveLength(1);
+  await act(async () => {
+    rejectMutation(new Error('Connection lost'));
+    await Promise.resolve();
+    await Promise.resolve();
+    // Even a retained pre-commit form cannot retry before reconciliation.
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(1);
+  expect(container.querySelector('form')).toBeNull();
+  expect(container.querySelector('[role=alert]')!.textContent).toContain('Connection lost');
+  expect(notify).not.toHaveBeenCalled();
+  await act(async () => button('Оновити').click());
+  expect(container.querySelector('[role=alert]')).toBeNull();
+  expect(container.textContent).toContain('Зареєстровано: 2 із 2. Залишилося: 0.');
+  expect(container.querySelector('input')!.value).toBe('ONCE');
+  await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(2);
+});
+it('serializes refreshes with mutations before React commits a disabled button', async () => {
+  let finishRefresh!: (value: RegistrationState) => void;
+  request.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
+  await edit(container.querySelector('input')!, 'AFTER-REFRESH');
+  const form = container.querySelector('form')!;
+  const refresh = button('Оновити');
+  await act(async () => {
+    refresh.click();
+    refresh.click();
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  expect(request.mock.calls.filter(([action]) => action === 'get_registration')).toHaveLength(2);
+  expect(request.mock.calls.filter(([action]) => action === 'create_promo_code')).toHaveLength(0);
+  await act(async () => finishRefresh({ ...state, revision: 9 }));
+  await edit(container.querySelector('select')!, 'free');
+  expect(request).toHaveBeenCalledWith('set_registration_mode', { mode: 'free', revision: 9 });
 });

@@ -8,6 +8,8 @@ import type { RegistrationMode, RegistrationState, PromoCode } from './registrat
 export function RegistrationPanel({ request = serviceCall, notify }: { request?: typeof serviceCall; notify: (message: string) => void }) {
   const { t } = useI18n();
   const mounted = useRef(false);
+  const operationInFlight = useRef(false);
+  const reconciled = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const number = new Intl.NumberFormat(locale());
   const [state, setState] = useState<RegistrationState | null>(null);
@@ -15,18 +17,24 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
   const [code, setCode] = useState(''), [kind, setKind] = useState<'limited' | 'unlimited'>('limited'), [limit, setLimit] = useState('10');
   useEffect(() => {
     let live = true;
+    operationInFlight.current = true;
     setBusy(true);
     request<RegistrationState>('get_registration', { page: 1 }).then(value => { if (live) setState(value); },
-      failure => { if (live) setError((failure as Error).message); }).finally(() => { if (live) setBusy(false); });
+      failure => { if (live) setError((failure as Error).message); }).finally(() => { if (live) { operationInFlight.current = false; setBusy(false); } });
     return () => { live = false; };
   }, [request]);
   async function load(page = state?.page || 1) {
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
     setBusy(true); setError('');
-    try { const value = await request<RegistrationState>('get_registration', { page }); if (mounted.current) setState(value); }
+    try { const value = await request<RegistrationState>('get_registration', { page }); if (mounted.current) { reconciled.current = true; setState(value); } }
     catch (failure) { if (mounted.current) setError((failure as Error).message); }
-    finally { if (mounted.current) setBusy(false); }
+    finally { operationInFlight.current = false; if (mounted.current) setBusy(false); }
   }
   async function change(action: string, payload: Record<string, unknown>) {
+    if (operationInFlight.current || !reconciled.current) return;
+    operationInFlight.current = true;
+    reconciled.current = false;
     setBusy(true); setError('');
     const page = action === 'create_promo_code' ? 1 : state?.page || 1;
     let saved = false;
@@ -41,11 +49,17 @@ export function RegistrationPanel({ request = serviceCall, notify }: { request?:
       // Refresh after mutation, so activation counts are read from the server.
       const value = await request<RegistrationState>('get_registration', { page });
       if (!mounted.current) return;
+      reconciled.current = true;
       setState(value);
     } catch (failure) {
-      if (mounted.current) setError(saved ? t('registration.refreshFailed') : (failure as Error).message);
+      if (mounted.current) {
+        // A lost response can hide a committed change. Reconcile before retrying.
+        setState(null);
+        setError(saved ? t('registration.refreshFailed') :
+          t('registration.refreshRequired', { error: (failure as Error).message }));
+      }
     }
-    finally { if (mounted.current) setBusy(false); }
+    finally { operationInFlight.current = false; if (mounted.current) setBusy(false); }
   }
   const status = (promo: PromoCode) => !promo.enabled ? 'registration.disabled' :
     promo.maxActivations !== null && promo.activations >= promo.maxActivations ? 'registration.exhausted' : 'registration.active';
