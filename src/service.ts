@@ -8,7 +8,7 @@ export { EFFORTS, RULES_VERSION } from '../supabase/functions/_shared/llm';
 export type {SmtpConfig,SmtpState} from '../supabase/functions/_shared/smtp';
 // rulesVersion is the deployed function's RULES_VERSION; functions deployed before it was reported omit it.
 export type ServiceStatus={isAdmin:boolean;configured:boolean;monthlyTokenBudget:number;usage:{used_tokens:number;reserved_tokens:number;month:string};rulesVersion?:string};
-export type Account={id:string;email:string;createdAt:string;lastSignInAt:string|null;confirmed:boolean;isAdmin:boolean};
+export type Account={id:string;email:string;createdAt:string;lastSignInAt:string|null;confirmed:boolean;isAdmin:boolean;promoCode?:string|null};
 export type LlmRun={id:string;user_id:string;operation:'match'|'tailor';status:'pending'|'succeeded'|'failed'|'uncertain';
   input:LlmInput;result:MatchResult|TailorResult|null;model:string;rules_version:string;created_at:string;
   input_hash:string;error_code:string|null;charged_tokens:number|null;usage_estimated:boolean};

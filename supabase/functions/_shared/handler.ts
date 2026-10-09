@@ -12,7 +12,7 @@ type Dependencies = {
 };
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ERROR_CODES=['admin_required','config_conflict','request_conflict','llm_unconfigured','budget_exceeded',
-  'request_in_progress','input_too_large','admin_delete_protected','action_rate_limited'];
+  'request_in_progress','input_too_large','admin_delete_protected','action_rate_limited','registration_conflict','promo_code_exists','invalid_input'];
 function databaseError(message:string): never {
   const code=ERROR_CODES.find(x=>message.includes(x));
   throw new AppError(code||'storage_error',code==='admin_required'?403:code?409:503);
@@ -72,8 +72,32 @@ export function createHandler(deps:Dependencies) {
       const user=auth.user;
       const body=object(await boundedJson(new Response(request.body),180000));
       const action=text(body.action,60);
-      if(['list_users','reset_password','delete_user','get_config','save_config','get_smtp','save_smtp'].includes(action)&&!await isAdmin(user.id))
+      if(['list_users','reset_password','delete_user','get_config','save_config','get_smtp','save_smtp',
+        'get_registration','set_registration_mode','create_promo_code','toggle_promo_code'].includes(action)&&!await isAdmin(user.id))
         throw new AppError('admin_required',403);
+      if(action==='get_registration') {
+        const page=body.page===undefined?1:body.page;
+        if(!Number.isSafeInteger(page)||Number(page)<1||Number(page)>10000)throw new AppError('invalid_input');
+        return reply(await rpc('registration_admin_state',{p_actor:user.id,p_page:page}));
+      }
+      if(action==='set_registration_mode') {
+        if(!['free','promo'].includes(String(body.mode))||!Number.isSafeInteger(body.revision)||Number(body.revision)<1)throw new AppError('invalid_input');
+        await rpc('registration_set_mode',{p_actor:user.id,p_mode:body.mode,p_revision:body.revision});
+        return reply({ok:true});
+      }
+      if(action==='create_promo_code') {
+        const code=text(body.code,64).trim().toUpperCase();
+        if(!/^[A-Z0-9_-]{4,64}$/.test(code)||!(body.maxActivations===null||
+          (Number.isSafeInteger(body.maxActivations)&&Number(body.maxActivations)>=1&&Number(body.maxActivations)<=1000000)))throw new AppError('invalid_input');
+        await rpc('registration_create_code',{p_actor:user.id,p_code:code,p_max:body.maxActivations});
+        return reply({ok:true});
+      }
+      if(action==='toggle_promo_code') {
+        const id=text(body.id,36);
+        if(!UUID.test(id)||typeof body.enabled!=='boolean'||!Number.isSafeInteger(body.revision)||Number(body.revision)<1)throw new AppError('invalid_input');
+        await rpc('registration_toggle_code',{p_actor:user.id,p_id:id,p_enabled:body.enabled,p_revision:body.revision});
+        return reply({ok:true});
+      }
       if(action==='get_smtp'||action==='save_smtp') {
         const supplied=body.managementToken===undefined?'':text(body.managementToken,8000,true).trim();
         const token=supplied||deps.managementToken||'';
@@ -129,8 +153,9 @@ export function createHandler(deps:Dependencies) {
         const {data:admins,error:roleError}=await admin.from('app_admins').select('user_id');
         if(roleError)throw new AppError('storage_error',503);
         const ids=new Set((admins||[]).map(a=>a.user_id));
+        const codes=data.users.length?await rpc('registration_user_codes',{p_actor:user.id,p_users:data.users.map(u=>u.id)}):{};
         return reply({users:data.users.map(u=>({id:u.id,email:u.email||'',createdAt:u.created_at,
-          lastSignInAt:u.last_sign_in_at||null,confirmed:!!u.email_confirmed_at,isAdmin:ids.has(u.id)})),
+          lastSignInAt:u.last_sign_in_at||null,confirmed:!!u.email_confirmed_at,isAdmin:ids.has(u.id),promoCode:codes[u.id]||null})),
           page,total:'total' in data?data.total:null,hasMore:data.users.length===50});
       }
       if(action==='reset_password'||action==='delete_user') {
